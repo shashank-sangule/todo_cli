@@ -2,10 +2,7 @@ use chrono::{Local, NaiveDateTime};
 use clap::{Parser, Subcommand};
 use core::fmt;
 use serde::{Deserialize, Serialize};
-use serde_json;
-use std::fs;
 use std::path::Path;
-use std::process;
 use std::str::FromStr;
 
 #[derive(Parser)]
@@ -29,6 +26,8 @@ enum Commands {
     Edit {
         id: i32,
         todo: String,
+        due: Option<String>,
+        priority: Option<String>,
     },
     Toggle {
         id: i32,
@@ -44,10 +43,24 @@ enum Commands {
         desc: bool,
         #[arg(long, value_parser=["due", "priority", "due+priority"])]
         sort_by: Option<String>,
+        #[arg(short, long, group = "filter-status")]
+        only_complete: bool,
+        #[arg(short, long, group = "filter-status")]
+        only_pending: bool,
+        #[arg(long, value_parser=["high", "medium", "low"])]
+        priority: Option<String>,
+        #[arg(short, long, group = "filter-time")]
+        overdue: bool,
+        #[arg(short, long, group = "filter-time")]
+        due_today: bool,
+        #[arg(short, long, group = "filter-time")]
+        due_tomorrow: bool,
+        #[arg(short, long, group = "filter-time")]
+        due_within: Option<i64>,
     },
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 struct TodoItem {
     id: i32,
     todo: String,
@@ -56,7 +69,7 @@ struct TodoItem {
     priority: Option<Priority>,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 enum Priority {
     Low,
     Medium,
@@ -86,229 +99,407 @@ impl fmt::Display for Priority {
     }
 }
 
-// Enhanced display functions
-impl TodoItem {
-    fn format_status(&self) -> &'static str {
-        if self.status { "✅" } else { "⬜" }
-    }
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+enum SortBy {
+    Due,
+    Priority,
+    DueThenPriority,
+}
 
-    fn format_due_date(&self) -> String {
-        match self.due {
-            Some(due) => {
-                let now = Local::now().naive_local();
-                let diff = due.signed_duration_since(now);
+impl FromStr for SortBy {
+    type Err = TodoError;
 
-                if diff.num_days() < 0 {
-                    format!("🔴 {} (overdue)", due.format("%d-%m-%Y %H:%M"))
-                } else if diff.num_days() == 0 {
-                    format!("🟡 {} (today)", due.format("%H:%M"))
-                } else if diff.num_days() == 1 {
-                    format!("🟢 {} (tomorrow)", due.format("%H:%M"))
-                } else if diff.num_days() <= 7 {
-                    format!(
-                        "🟢 {} ({} days)",
-                        due.format("%d-%m %H:%M"),
-                        diff.num_days()
-                    )
-                } else {
-                    format!("⚪ {}", due.format("%d-%m-%Y"))
-                }
-            }
-            None => "-".to_string(),
-        }
-    }
-
-    fn truncate_text(text: &str, max_len: usize) -> String {
-        if text.len() <= max_len {
-            text.to_string()
-        } else {
-            format!("{}...", &text[..max_len.saturating_sub(3)])
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "due" => Ok(SortBy::Due),
+            "priority" => Ok(SortBy::Priority),
+            "due+priority" => Ok(SortBy::DueThenPriority),
+            _ => Err(TodoError::InvalidSortField),
         }
     }
 }
 
+type TodoResult<T> = Result<T, TodoError>;
 
-fn main() {
+#[derive(Debug)]
+enum TodoError {
+    InvalidDateFormat,
+    InvalidPriority,
+    TodoNotFound(i32),
+    FileError(String),
+    EmptyTodo,
+    SerializationError,
+    InvalidSortField,
+    TodoTooLong,
+}
+
+impl std::fmt::Display for TodoError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            TodoError::InvalidDateFormat => {
+                write!(f, "❌ Invalid date format. Use: dd-mm-YYYY HH:MM")
+            }
+            TodoError::InvalidPriority => write!(f, "❌ Invalid priority. Use: high, medium, low"),
+            TodoError::FileError(msg) => write!(f, "❌ File error: {msg}"),
+            TodoError::TodoNotFound(id) => write!(f, "❌ Todo with ID {id} not found"),
+            TodoError::EmptyTodo => write!(f, "❌ Todo cannot be empty"),
+            TodoError::SerializationError => write!(f, "❌ Failed to save/load todos"),
+            TodoError::InvalidSortField => {
+                write!(f, "❌ Invalid sort field: Use: due, priority, due+priority")
+            }
+
+            TodoError::TodoTooLong => write!(f, "❌ Todo cannot be more than 500 character"),
+        }
+    }
+}
+
+struct TodoManager {
+    todos: Vec<TodoItem>,
+    file_path: String,
+    next_id: i32,
+}
+
+impl TodoManager {
+    fn new(file_path: String) -> TodoResult<Self> {
+        let todos = Self::load_todos(&file_path)?;
+        let next_id = todos.iter().map(|t| t.id).max().unwrap_or(0) + 1;
+        Ok(TodoManager {
+            todos,
+            file_path,
+            next_id,
+        })
+    }
+
+    fn load_todos(file_path: &str) -> TodoResult<Vec<TodoItem>> {
+        if !Path::new(file_path).exists() {
+            return Ok(Vec::new());
+        }
+
+        let content = std::fs::read_to_string(file_path)
+            .map_err(|e| TodoError::FileError(format!("Failed to read {file_path}: {e}")))?;
+
+        serde_json::from_str(&content)
+            .map_err(|e| TodoError::FileError(format!("Invalid JSON in {file_path}: {e}")))
+    }
+
+    fn save(&self) -> TodoResult<()> {
+        let content =
+            serde_json::to_string(&self.todos).map_err(|_| TodoError::SerializationError)?;
+        std::fs::write(&self.file_path, content)
+            .map_err(|e| TodoError::FileError(e.to_string()))?;
+        Ok(())
+    }
+
+    fn add_todo(
+        &mut self,
+        text: &str,
+        due: Option<&str>,
+        priority: Option<&str>,
+    ) -> TodoResult<()> {
+        let trimmed_text = text.trim();
+        if trimmed_text.is_empty() {
+            return Err(TodoError::EmptyTodo);
+        }
+        if trimmed_text.len() > 500 {
+            // Add max length check
+            return Err(TodoError::TodoTooLong);
+        }
+        let parsed_due = Self::parse_due_date(due)?;
+        let parsed_priority = Self::parse_priority(priority)?;
+        let next_id = self.next_id;
+        self.next_id = next_id + 1;
+
+        let todo = TodoItem {
+            id: next_id,
+            todo: text.to_string(),
+            status: false,
+            due: parsed_due,
+            priority: parsed_priority,
+        };
+
+        self.todos.push(todo);
+
+        Ok(())
+    }
+
+    fn parse_due_date(due_str: Option<&str>) -> TodoResult<Option<NaiveDateTime>> {
+        match due_str {
+            Some(date_str) if !date_str.trim().is_empty() => {
+                let formats = [
+                    "%d-%m-%Y %H:%M",
+                    "%d-%m-%y %H:%M",
+                    "%d-%m-%Y",
+                    "%Y-%m-%d %H:%M",
+                ];
+
+                for format in &formats {
+                    if let Ok(dt) = NaiveDateTime::parse_from_str(date_str, format) {
+                        return Ok(Some(dt));
+                    }
+                }
+                Err(TodoError::InvalidDateFormat)
+            }
+            _ => Ok(None),
+        }
+    }
+
+    fn parse_priority(priority_str: Option<&str>) -> TodoResult<Option<Priority>> {
+        match priority_str {
+            Some(p) => Ok(Some(p.parse().map_err(|_| TodoError::InvalidPriority)?)),
+            None => Ok(None),
+        }
+    }
+
+    fn edit_todo(
+        &mut self,
+        id: i32,
+        new_text: &str,
+        due: Option<&str>,
+        priority: Option<&str>,
+    ) -> TodoResult<()> {
+        let trimmed_text = new_text.trim();
+        if trimmed_text.is_empty() {
+            return Err(TodoError::EmptyTodo);
+        }
+        if trimmed_text.len() > 500 {
+            // Add max length check
+            return Err(TodoError::TodoTooLong);
+        }
+
+        let todo = self.find_todo_mut(id)?;
+        todo.todo = new_text.to_string();
+
+        if let Some(d) = due {
+            todo.due = Self::parse_due_date(Some(d))?;
+        }
+        if let Some(p) = priority {
+            todo.priority = Self::parse_priority(Some(p))?;
+        }
+        Ok(())
+    }
+
+    fn find_todo_mut(&mut self, id: i32) -> TodoResult<&mut TodoItem> {
+        self.todos
+            .iter_mut()
+            .find(|t| t.id == id)
+            .ok_or(TodoError::TodoNotFound(id))
+    }
+
+    fn toggle_todo(&mut self, id: i32) -> TodoResult<()> {
+        let todo = self.find_todo_mut(id)?;
+        todo.status = !todo.status;
+        Ok(())
+    }
+
+    fn delete_todo(&mut self, id: i32) -> TodoResult<()> {
+        let original_len = self.todos.len();
+        self.todos.retain(|t| t.id != id);
+
+        if self.todos.len() < original_len {
+            Ok(())
+        } else {
+            Err(TodoError::TodoNotFound(id))
+        }
+    }
+
+    fn clear_all(&mut self) -> usize {
+        let count = self.todos.len();
+        self.todos.clear();
+        count
+    }
+}
+
+fn main() -> TodoResult<()> {
     let cli = Cli::parse();
-    let file_path = &cli.file;
+    let mut manager = TodoManager::new(cli.file)?;
 
-    let mut todo_list = load_todo_list(file_path);
-
-    match &cli.command {
+    match cli.command {
         Commands::Add {
             todo,
             due,
             priority,
         } => {
-            if todo.trim().is_empty() {
-                eprintln!("❌ Todo cannot be empty");
-                process::exit(1);
-            }
-            let next_id = todo_list.iter().map(|t| t.id).max().unwrap_or(0) + 1;
-            let due_str = match due {
-                Some(due) => due,
-                None => "",
-            };
-            let parsed_due = if !due_str.is_empty() {
-                match NaiveDateTime::parse_from_str(due_str, "%d-%m-%Y %H:%M") {
-                    Ok(dt) => Some(dt),
-                    Err(_) => {
-                        eprintln!(
-                            "❌ Invalid date format. Use: dd-mm-YYYY HH:MM (e.g., 05-08-25 15:30)"
-                        );
-                        process::exit(1);
-                    }
-                }
-            } else {
-                None
-            };
-            let parsed_priority = match priority {
-                Some(p) => Some(p.parse::<Priority>().unwrap_or_else(|_| {
-                    eprintln!("❌ Invalid priority. Use: high, medium, low.");
-                    process::exit(1);
-                })),
-                None => None,
-            };
-            let next_todo = TodoItem {
-                id: next_id,
-                todo: todo.to_string(),
-                status: false,
-                due: parsed_due,
-                priority: parsed_priority,
-            };
-            todo_list.push(next_todo);
+            manager.add_todo(&todo, due.as_deref(), priority.as_deref())?;
             println!("✅ Todo added!");
         }
-
-        Commands::Edit { id, todo } => {
-            let edit_todo = search_by_id(*id, &mut todo_list);
-            edit_todo.todo = todo.to_string();
+        Commands::Edit {
+            id,
+            todo,
+            due,
+            priority,
+        } => {
+            manager.edit_todo(id, &todo, due.as_deref(), priority.as_deref())?;
             println!("✏️ Todo edited!");
         }
-
         Commands::Toggle { id } => {
-            let todo = search_by_id(*id, &mut todo_list);
-            todo.status = !todo.status;
+            manager.toggle_todo(id)?;
             println!("🔄 Status toggled!");
         }
-
         Commands::Delete { id } => {
-            let original_len = todo_list.len();
-            todo_list.retain(|t| t.id != *id);
-
-            if original_len > todo_list.len() {
-                println!("🗑️ Todo deleted!");
-            } else {
-                eprintln!("❌ Todo with ID {} not found.", id);
-                process::exit(1);
-            }
+            manager.delete_todo(id)?;
+            println!("🗑️ Todo deleted!");
         }
-
         Commands::ClearList => {
-            let count = todo_list.len();
-            todo_list = vec![];
-            println!("🗑️ Cleared {} todo(s)!", count);
+            let count = manager.clear_all();
+            println!("🗑️ Cleared {count} todo(s)!");
         }
+        Commands::List {
+            sort_by,
+            asc,
+            desc,
+            only_complete,
+            only_pending,
+            priority,
+            overdue,
+            due_today,
+            due_tomorrow,
+            due_within,
+        } => {
+            let sort_by = match sort_by {
+                Some(s) => SortBy::from_str(&s)?,
+                None => SortBy::Due,
+            };
 
-        Commands::List { sort_by, asc, desc } => {
-            let ascending = *asc || (!asc && !desc);
-            if let Some(sort) = sort_by {
-                match sort.as_str() {
-                    "due" => {
-                        if ascending {
-                            todo_list.sort_by(|a, b| a.due.cmp(&b.due));
-                        } else {
-                            todo_list.sort_by(|a, b| b.due.cmp(&a.due));
-                        }
-                    }
-                    "priority" => {
-                        if ascending {
-                            todo_list.sort_by(|a, b| a.priority.cmp(&b.priority));
-                        } else {
-                            todo_list.sort_by(|a, b| b.priority.cmp(&a.priority));
-                        }
-                    }
-                    "due+priority" => {
-                        if ascending {
-                            todo_list.sort_by(|a, b| {
-                                a.due.cmp(&b.due).then(a.priority.cmp(&b.priority))
-                            });
-                        } else {
-                            todo_list.sort_by(|a, b| {
-                                b.due.cmp(&a.due).then(b.priority.cmp(&a.priority))
-                            });
-                        }
-                    }
-                    _ => {
-                        eprintln!("❌ Invalid sort_by value. Use: due, priority, due+priority");
-                        process::exit(1);
-                    }
-                }
-            }
-
-            display_todos_simple(&todo_list);
+            handle_list_command(
+                &mut manager.todos,
+                sort_by,
+                asc,
+                desc,
+                only_complete,
+                only_pending,
+                priority.as_deref(),
+                overdue,
+                due_today,
+                due_tomorrow,
+                due_within,
+            )?;
         }
     }
 
-    save_todo_list(file_path, &todo_list);
+    manager.save()?;
+    Ok(())
 }
 
-fn load_todo_list(file_path: &str) -> Vec<TodoItem> {
-    if Path::new(file_path).exists() {
-        match fs::read_to_string(file_path) {
-            Ok(content) => serde_json::from_str(&content).unwrap_or_else(|_| vec![]),
-            Err(_) => {
-                eprintln!("⚠️ Could not read file: {}", file_path);
-                vec![]
-            }
-        }
+fn handle_list_command(
+    todos: &mut [TodoItem],
+    sort_by: SortBy,
+    asc: bool,
+    desc: bool,
+    only_complete: bool,
+    only_pending: bool,
+    priority: Option<&str>,
+    overdue: bool,
+    due_today: bool,
+    due_tomorrow: bool,
+    due_within: Option<i64>,
+) -> TodoResult<()> {
+    let ascending = asc || !desc;
+
+    apply_sorting(todos, sort_by, ascending)?;
+
+    let status = if only_complete {
+        Some(true)
+    } else if only_pending {
+        Some(false)
     } else {
-        vec![]
-    }
-}
-
-fn save_todo_list(file_path: &str, todo_list: &Vec<TodoItem>) {
-    let content = match serde_json::to_string(todo_list) {
-        Ok(content) => content,
-        Err(_) => {
-            eprintln!("❌ Failed to serialize todos");
-            process::exit(1);
-        }
+        None
     };
 
-    if let Err(_) = fs::write(file_path, content) {
-        eprintln!("❌ Failed to write to file: {}", file_path);
-        process::exit(1);
-    }
+    let todos = &apply_filter(
+        todos,
+        status,
+        priority,
+        overdue,
+        due_today,
+        due_tomorrow,
+        due_within,
+    )?;
+
+    display_todos(todos);
+    Ok(())
 }
 
-fn search_by_id(id: i32, todo_list: &mut Vec<TodoItem>) -> &mut TodoItem {
-    match todo_list.iter_mut().find(|t| t.id == id) {
-        Some(todo) => {
-            return todo;
+fn apply_sorting(todos: &mut [TodoItem], sort_by: SortBy, ascending: bool) -> TodoResult<()> {
+    match sort_by {
+        SortBy::Due => {
+            if ascending {
+                todos.sort_by(|a, b| a.due.cmp(&b.due));
+            } else {
+                todos.sort_by(|a, b| b.due.cmp(&a.due));
+            }
         }
-        None => {
-            eprintln!("❌ Todo with ID {} not found.", id);
-            process::exit(1);
+        SortBy::Priority => {
+            if ascending {
+                todos.sort_by(|a, b| a.priority.cmp(&b.priority));
+            } else {
+                todos.sort_by(|a, b| b.priority.cmp(&a.priority));
+            }
+        }
+        SortBy::DueThenPriority => {
+            if ascending {
+                todos.sort_by(|a, b| a.due.cmp(&b.due).then(a.priority.cmp(&b.priority)));
+            } else {
+                todos.sort_by(|a, b| b.due.cmp(&a.due).then(b.priority.cmp(&a.priority)));
+            }
         }
     }
+    Ok(())
 }
 
-fn display_todos_simple(todo_list: &[TodoItem]) {
-    if todo_list.is_empty() {
+fn apply_filter(
+    todos: &[TodoItem],
+    status: Option<bool>,
+    priority: Option<&str>,
+    overdue: bool,
+    due_today: bool,
+    due_tomorrow: bool,
+    due_within: Option<i64>,
+) -> TodoResult<Vec<TodoItem>> {
+    let filtered = todos.iter().filter(|todo| {
+        let status_match = status.is_none_or(|s| todo.status == s);
+        let priority_match = match priority {
+            Some("high") => todo.priority == Some(Priority::High),
+            Some("medium") => todo.priority == Some(Priority::Medium),
+            Some("low") => todo.priority == Some(Priority::Low),
+            Some(_) => return false,
+            None => true,
+        };
+        let now = Local::now().naive_local();
+        let overdue_match = !overdue || todo.due.is_some_and(|t| t < now);
+        let due_today_match = !due_today || todo.due.is_some_and(|t| t.date() == now.date());
+        let due_tomorrow_match = !due_tomorrow
+            || todo
+                .due
+                .is_some_and(|t| t.date() == now.date() + chrono::Duration::days(1));
+        let due_within_match = due_within.is_none_or(|n| {
+            todo.due.is_some_and(|t| {
+                let date = t.date();
+                date >= now.date() && date <= now.date() + chrono::Duration::days(n)
+            })
+        });
+        status_match
+            && priority_match
+            && overdue_match
+            && due_today_match
+            && due_tomorrow_match
+            && due_within_match
+    });
+
+    Ok(filtered.cloned().collect())
+}
+
+fn display_todos(todos: &[TodoItem]) {
+    if todos.is_empty() {
         println!("📭 No todos found.");
         return;
     }
 
-    println!(
-        "{:<3} {} {:<35} {:<25} {}",
-        "ID", "✓", "Todo", "Due Date", "Priority"
-    );
+    println!("{:<3} ✓ {:<35} {:<25} Priority", "ID", "Todo", "Due Date");
     println!("{}", "─".repeat(75));
 
-    for item in todo_list {
-        let truncated_todo = TodoItem::truncate_text(&item.todo, 35);
-        let due_date = item.format_due_date();
+    for item in todos {
+        let truncated_todo = truncate_text(&item.todo, 35);
+        let due_date = format_due_date(item.due);
         let priority = item
             .priority
             .as_ref()
@@ -318,10 +509,48 @@ fn display_todos_simple(todo_list: &[TodoItem]) {
         println!(
             "{:<3} {} {:<35} {:<25} {}",
             item.id,
-            item.format_status(),
+            format_status(item.status),
             truncated_todo,
             due_date,
             priority
         );
+    }
+}
+
+fn format_status(status: bool) -> &'static str {
+    if status { "✅" } else { "⬜" }
+}
+
+fn format_due_date(due: Option<NaiveDateTime>) -> String {
+    match due {
+        Some(due) => {
+            let now = Local::now().naive_local();
+            let diff = due.signed_duration_since(now);
+
+            if diff.num_days() < 0 {
+                format!("🔴 {} (overdue)", due.format("%d-%m-%Y %H:%M"))
+            } else if diff.num_days() == 0 {
+                format!("🟡 {} (today)", due.format("%H:%M"))
+            } else if diff.num_days() == 1 {
+                format!("🟢 {} (tomorrow)", due.format("%H:%M"))
+            } else if diff.num_days() <= 7 {
+                format!(
+                    "🟢 {} ({} days)",
+                    due.format("%d-%m %H:%M"),
+                    diff.num_days()
+                )
+            } else {
+                format!("⚪ {}", due.format("%d-%m-%Y"))
+            }
+        }
+        None => "-".to_string(),
+    }
+}
+
+fn truncate_text(text: &str, max_len: usize) -> String {
+    if text.len() <= max_len {
+        text.to_string()
+    } else {
+        format!("{}...", &text[..max_len.saturating_sub(3)])
     }
 }
