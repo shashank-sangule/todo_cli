@@ -37,9 +37,9 @@ enum Commands {
     },
     ClearList,
     List {
-        #[arg(short, long, group = "order")]
+        #[arg(short, long, group = "order", conflicts_with = "desc")]
         asc: bool,
-        #[arg(short, long, group = "order")]
+        #[arg(short, long, group = "order", conflicts_with = "asc")]
         desc: bool,
         #[arg(long, value_parser=["due", "priority", "due+priority"])]
         sort_by: Option<String>,
@@ -148,7 +148,7 @@ impl std::fmt::Display for TodoError {
                 write!(f, "❌ Invalid sort field: Use: due, priority, due+priority")
             }
 
-            TodoError::TodoTooLong => write!(f, "❌ Todo cannot be more than 500 character"),
+            TodoError::TodoTooLong => write!(f, "❌ Todo cannot be more than 500 characters"),
         }
     }
 }
@@ -190,20 +190,24 @@ impl TodoManager {
         Ok(())
     }
 
+    fn validate_todo_text(text: &str) -> TodoResult<String> {
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            return Err(TodoError::EmptyTodo);
+        }
+        if trimmed.len() > 500 {
+            return Err(TodoError::TodoTooLong);
+        }
+        Ok(trimmed.to_string())
+    }
+
     fn add_todo(
         &mut self,
         text: &str,
         due: Option<&str>,
         priority: Option<&str>,
     ) -> TodoResult<()> {
-        let trimmed_text = text.trim();
-        if trimmed_text.is_empty() {
-            return Err(TodoError::EmptyTodo);
-        }
-        if trimmed_text.len() > 500 {
-            // Add max length check
-            return Err(TodoError::TodoTooLong);
-        }
+        let text = Self::validate_todo_text(text)?;
         let parsed_due = Self::parse_due_date(due)?;
         let parsed_priority = Self::parse_priority(priority)?;
         let next_id = self.next_id;
@@ -257,14 +261,7 @@ impl TodoManager {
         due: Option<&str>,
         priority: Option<&str>,
     ) -> TodoResult<()> {
-        let trimmed_text = new_text.trim();
-        if trimmed_text.is_empty() {
-            return Err(TodoError::EmptyTodo);
-        }
-        if trimmed_text.len() > 500 {
-            // Add max length check
-            return Err(TodoError::TodoTooLong);
-        }
+        let new_text = Self::validate_todo_text(new_text)?;
 
         let todo = self.find_todo_mut(id)?;
         todo.todo = new_text.to_string();
@@ -306,6 +303,108 @@ impl TodoManager {
         let count = self.todos.len();
         self.todos.clear();
         count
+    }
+}
+
+struct ListOptions {
+    sort_by: SortBy,
+    asc: bool,
+    desc: bool,
+    only_complete: bool,
+    only_pending: bool,
+    priority: Option<Priority>,
+    overdue: bool,
+    due_today: bool,
+    due_tomorrow: bool,
+    due_within: Option<i64>,
+}
+
+impl ListOptions {
+    // Check if any filters are actually enabled
+    fn has_any_filters(&self) -> bool {
+        self.only_complete
+            || self.only_pending
+            || self.priority.is_some()
+            || self.overdue
+            || self.due_today
+            || self.due_tomorrow
+            || self.due_within.is_some()
+    }
+
+    // Check if item passes ALL active filters (AND logic)
+    fn item_passes_filters(&self, item: &TodoItem) -> bool {
+        // If no filters are set, include all items
+        if !self.has_any_filters() {
+            return true;
+        }
+
+        // Check each filter type - item must pass ALL active filters
+        self.passes_status_filter(item)
+            && self.passes_priority_filter(item)
+            && self.passes_time_filter(item)
+    }
+
+    fn passes_status_filter(&self, item: &TodoItem) -> bool {
+        match (self.only_complete, self.only_pending) {
+            (true, false) => item.status,  // Only completed items
+            (false, true) => !item.status, // Only pending items
+            _ => true,                     // No status filter or conflicting filters
+        }
+    }
+
+    fn passes_priority_filter(&self, item: &TodoItem) -> bool {
+        match self.priority {
+            Some(required_priority) => item.priority == Some(required_priority),
+            None => true, // No priority filter
+        }
+    }
+
+    fn passes_time_filter(&self, item: &TodoItem) -> bool {
+        // If no time filters are set, pass
+        if !self.overdue && !self.due_today && !self.due_tomorrow && self.due_within.is_none() {
+            return true;
+        }
+
+        // Check if item matches ANY of the active time filters (OR logic within time category)
+        self.is_overdue(item)
+            || self.is_due_today(item)
+            || self.is_due_tomorrow(item)
+            || self.is_due_within(item)
+    }
+
+    // Individual check methods - only check the condition, don't check if filter is active
+    fn is_due_today(&self, item: &TodoItem) -> bool {
+        if !self.due_today {
+            return false;
+        }
+        item.due.map(|d| d.date()) == Some(Local::now().naive_local().date())
+    }
+
+    fn is_due_tomorrow(&self, item: &TodoItem) -> bool {
+        if !self.due_tomorrow {
+            return false;
+        }
+        item.due.map(|d| d.date())
+            == Some(Local::now().naive_local().date() + chrono::Duration::days(1))
+    }
+
+    fn is_overdue(&self, item: &TodoItem) -> bool {
+        if !self.overdue {
+            return false;
+        }
+        item.due.is_some_and(|d| d < Local::now().naive_local())
+    }
+
+    fn is_due_within(&self, item: &TodoItem) -> bool {
+        if let Some(days) = self.due_within {
+            item.due.is_some_and(|d| {
+                let now = Local::now().naive_local();
+                let date = d.date();
+                date >= now.date() && date <= now.date() + chrono::Duration::days(days)
+            })
+        } else {
+            false
+        }
     }
 }
 
@@ -360,19 +459,22 @@ fn main() -> TodoResult<()> {
                 None => SortBy::Due,
             };
 
-            handle_list_command(
-                &mut manager.todos,
+            let priority = TodoManager::parse_priority(priority.as_deref())?;
+
+            let list_options = ListOptions {
                 sort_by,
                 asc,
                 desc,
                 only_complete,
                 only_pending,
-                priority.as_deref(),
+                priority,
                 overdue,
                 due_today,
                 due_tomorrow,
                 due_within,
-            )?;
+            };
+
+            handle_list_command(&mut manager.todos, list_options)?;
         }
     }
 
@@ -380,112 +482,43 @@ fn main() -> TodoResult<()> {
     Ok(())
 }
 
-fn handle_list_command(
-    todos: &mut [TodoItem],
-    sort_by: SortBy,
-    asc: bool,
-    desc: bool,
-    only_complete: bool,
-    only_pending: bool,
-    priority: Option<&str>,
-    overdue: bool,
-    due_today: bool,
-    due_tomorrow: bool,
-    due_within: Option<i64>,
-) -> TodoResult<()> {
-    let ascending = asc || !desc;
+fn handle_list_command(todos: &mut [TodoItem], list_options: ListOptions) -> TodoResult<()> {
+    let ascending = list_options.asc || !list_options.desc;
 
-    apply_sorting(todos, sort_by, ascending)?;
+    apply_sorting(todos, list_options.sort_by, ascending)?;
 
-    let status = if only_complete {
-        Some(true)
-    } else if only_pending {
-        Some(false)
-    } else {
-        None
-    };
+    let filtered_todos = apply_filter(todos, &list_options)?;
 
-    let todos = &apply_filter(
-        todos,
-        status,
-        priority,
-        overdue,
-        due_today,
-        due_tomorrow,
-        due_within,
-    )?;
-
-    display_todos(todos);
+    display_todos(&filtered_todos);
     Ok(())
 }
 
 fn apply_sorting(todos: &mut [TodoItem], sort_by: SortBy, ascending: bool) -> TodoResult<()> {
-    match sort_by {
-        SortBy::Due => {
-            if ascending {
-                todos.sort_by(|a, b| a.due.cmp(&b.due));
-            } else {
-                todos.sort_by(|a, b| b.due.cmp(&a.due));
-            }
+    let comparator = match (sort_by, ascending) {
+        (SortBy::Due, true) => |a: &TodoItem, b: &TodoItem| a.due.cmp(&b.due),
+        (SortBy::Due, false) => |a: &TodoItem, b: &TodoItem| b.due.cmp(&a.due),
+        (SortBy::Priority, true) => |a: &TodoItem, b: &TodoItem| a.priority.cmp(&b.priority),
+        (SortBy::Priority, false) => |a: &TodoItem, b: &TodoItem| b.priority.cmp(&a.priority),
+        (SortBy::DueThenPriority, true) => {
+            |a: &TodoItem, b: &TodoItem| a.due.cmp(&b.due).then(a.priority.cmp(&b.priority))
         }
-        SortBy::Priority => {
-            if ascending {
-                todos.sort_by(|a, b| a.priority.cmp(&b.priority));
-            } else {
-                todos.sort_by(|a, b| b.priority.cmp(&a.priority));
-            }
+        (SortBy::DueThenPriority, false) => {
+            |a: &TodoItem, b: &TodoItem| b.due.cmp(&a.due).then(b.priority.cmp(&a.priority))
         }
-        SortBy::DueThenPriority => {
-            if ascending {
-                todos.sort_by(|a, b| a.due.cmp(&b.due).then(a.priority.cmp(&b.priority)));
-            } else {
-                todos.sort_by(|a, b| b.due.cmp(&a.due).then(b.priority.cmp(&a.priority)));
-            }
-        }
-    }
+    };
+
+    todos.sort_by(comparator);
     Ok(())
 }
 
-fn apply_filter(
-    todos: &[TodoItem],
-    status: Option<bool>,
-    priority: Option<&str>,
-    overdue: bool,
-    due_today: bool,
-    due_tomorrow: bool,
-    due_within: Option<i64>,
-) -> TodoResult<Vec<TodoItem>> {
-    let filtered = todos.iter().filter(|todo| {
-        let status_match = status.is_none_or(|s| todo.status == s);
-        let priority_match = match priority {
-            Some("high") => todo.priority == Some(Priority::High),
-            Some("medium") => todo.priority == Some(Priority::Medium),
-            Some("low") => todo.priority == Some(Priority::Low),
-            Some(_) => return false,
-            None => true,
-        };
-        let now = Local::now().naive_local();
-        let overdue_match = !overdue || todo.due.is_some_and(|t| t < now);
-        let due_today_match = !due_today || todo.due.is_some_and(|t| t.date() == now.date());
-        let due_tomorrow_match = !due_tomorrow
-            || todo
-                .due
-                .is_some_and(|t| t.date() == now.date() + chrono::Duration::days(1));
-        let due_within_match = due_within.is_none_or(|n| {
-            todo.due.is_some_and(|t| {
-                let date = t.date();
-                date >= now.date() && date <= now.date() + chrono::Duration::days(n)
-            })
-        });
-        status_match
-            && priority_match
-            && overdue_match
-            && due_today_match
-            && due_tomorrow_match
-            && due_within_match
-    });
+fn apply_filter(todos: &[TodoItem], list_options: &ListOptions) -> TodoResult<Vec<TodoItem>> {
+    let filtered: Vec<TodoItem> = todos
+        .iter()
+        .filter(|todo| list_options.item_passes_filters(todo))
+        .cloned()
+        .collect();
 
-    Ok(filtered.cloned().collect())
+    Ok(filtered)
 }
 
 fn display_todos(todos: &[TodoItem]) {
