@@ -1,6 +1,5 @@
 use crate::todo::{Priority, TodoError, TodoItem, TodoResult};
-use crate::utils::validate_text;
-use chrono::NaiveDateTime;
+use crate::utils::{parse_due_date, validate_text};
 use std::path::Path;
 
 pub struct TodoManager {
@@ -47,7 +46,7 @@ impl TodoManager {
         priority: Option<&str>,
     ) -> TodoResult<()> {
         let text = validate_text(text, 500)?;
-        let parsed_due = Self::parse_due_date(due)?;
+        let parsed_due = parse_due_date(due)?;
         let parsed_priority = Self::parse_priority(priority)?;
         let next_id = self.next_id;
         self.next_id = next_id + 1;
@@ -63,27 +62,6 @@ impl TodoManager {
         self.todos.push(todo);
 
         Ok(())
-    }
-
-    pub fn parse_due_date(due_str: Option<&str>) -> TodoResult<Option<NaiveDateTime>> {
-        match due_str {
-            Some(date_str) if !date_str.trim().is_empty() => {
-                let formats = [
-                    "%d-%m-%Y %H:%M",
-                    "%d-%m-%y %H:%M",
-                    "%d-%m-%Y",
-                    "%Y-%m-%d %H:%M",
-                ];
-
-                for format in &formats {
-                    if let Ok(dt) = NaiveDateTime::parse_from_str(date_str, format) {
-                        return Ok(Some(dt));
-                    }
-                }
-                Err(TodoError::InvalidDateFormat)
-            }
-            _ => Ok(None),
-        }
     }
 
     pub fn parse_priority(priority_str: Option<&str>) -> TodoResult<Option<Priority>> {
@@ -106,7 +84,7 @@ impl TodoManager {
         todo.todo = new_text.to_string();
 
         if let Some(d) = due {
-            todo.due = Self::parse_due_date(Some(d))?;
+            todo.due = parse_due_date(Some(d))?;
         }
         if let Some(p) = priority {
             todo.priority = Self::parse_priority(Some(p))?;
