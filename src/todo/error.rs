@@ -31,5 +31,3 @@ impl std::fmt::Display for TodoError {
         }
     }
 }
-
-impl std::error::Error for TodoError {}

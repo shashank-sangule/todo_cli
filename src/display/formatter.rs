@@ -1,10 +1,4 @@
-pub fn truncate_text(text: &str, max_len: usize) -> String {
-    if text.len() <= max_len {
-        text.to_string()
-    } else {
-        format!("{}...", &text[..max_len.saturating_sub(3)])
-    }
-}
+use chrono::{Local, NaiveDateTime};
 
 pub fn format_status(status: bool) -> &'static str {
     if status { "✅" } else { "⬜" }
@@ -33,5 +27,13 @@ pub fn format_due_date(due: Option<NaiveDateTime>) -> String {
             }
         }
         None => "-".to_string(),
+    }
+}
+
+pub fn truncate_text(text: &str, max_len: usize) -> String {
+    if text.len() <= max_len {
+        text.to_string()
+    } else {
+        format!("{}...", &text[..max_len.saturating_sub(3)])
     }
 }

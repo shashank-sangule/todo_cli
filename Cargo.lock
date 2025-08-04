@@ -3,16 +3,6 @@
 version = 4
 
 [[package]]
-name = "To_Do_With_Clap"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "clap",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "android-tzdata"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -345,6 +335,16 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
+]
+
+[[package]]
+name = "todo_app"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "clap",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

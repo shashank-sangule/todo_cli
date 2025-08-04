@@ -1,9 +1,11 @@
+use clap::{Parser, Subcommand};
+
 #[derive(Parser)]
 #[command(version, about, long_about=None)]
 #[command(propagate_version = true)]
 pub struct Cli {
     #[arg(short, long, default_value = "todo_list.json")]
-    file: String,
+    pub file: String,
 
     #[command(subcommand)]
     command: Commands,
