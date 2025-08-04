@@ -4,6 +4,6 @@ pub mod item;
 pub mod manager;
 
 pub use error::{TodoError, TodoResult};
-pub use filters::ListOptions;
+pub use filters::ListQuery;
 pub use item::{Priority, SortBy, TodoItem};
 pub use manager::TodoManager;

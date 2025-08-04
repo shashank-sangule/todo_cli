@@ -1,7 +1,7 @@
 use crate::todo::item::{Priority, SortBy, TodoItem};
 use chrono::Local;
 
-pub struct ListOptions {
+pub struct ListQuery {
     pub sort_by: SortBy,
     pub asc: bool,
     pub desc: bool,
@@ -14,7 +14,7 @@ pub struct ListOptions {
     pub due_within: Option<i64>,
 }
 
-impl ListOptions {
+impl ListQuery {
     // Check if any filters are actually enabled
     pub fn has_any_filters(&self) -> bool {
         self.only_complete

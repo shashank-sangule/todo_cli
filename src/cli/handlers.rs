@@ -1,6 +1,6 @@
 use crate::cli::Commands;
 use crate::display::display_todos;
-use crate::todo::{ListOptions, SortBy, TodoItem, TodoManager, TodoResult};
+use crate::todo::{ListQuery, SortBy, TodoItem, TodoManager, TodoResult};
 use std::str::FromStr;
 
 pub fn handle_commands(command: Commands, manager: &mut TodoManager) -> TodoResult<()> {
@@ -53,7 +53,7 @@ pub fn handle_commands(command: Commands, manager: &mut TodoManager) -> TodoResu
 
             let priority = TodoManager::parse_priority(priority.as_deref())?;
 
-            let list_options = ListOptions {
+            let query = ListQuery {
                 sort_by,
                 asc,
                 desc,
@@ -66,18 +66,18 @@ pub fn handle_commands(command: Commands, manager: &mut TodoManager) -> TodoResu
                 due_within,
             };
 
-            handle_list_command(&mut manager.todos, list_options)?;
+            handle_list_command(&mut manager.todos, query)?;
         }
     }
     Ok(())
 }
 
-fn handle_list_command(todos: &mut [TodoItem], list_options: ListOptions) -> TodoResult<()> {
-    let ascending = list_options.asc || !list_options.desc;
+fn handle_list_command(todos: &mut [TodoItem], query: ListQuery) -> TodoResult<()> {
+    let ascending = query.asc || !query.desc;
 
-    apply_sorting(todos, list_options.sort_by, ascending)?;
+    apply_sorting(todos, query.sort_by, ascending)?;
 
-    let filtered_todos = apply_filter(todos, &list_options)?;
+    let filtered_todos = apply_filter(todos, &query)?;
 
     display_todos(&filtered_todos);
     Ok(())
@@ -101,7 +101,7 @@ fn apply_sorting(todos: &mut [TodoItem], sort_by: SortBy, ascending: bool) -> To
     Ok(())
 }
 
-fn apply_filter(todos: &[TodoItem], list_options: &ListOptions) -> TodoResult<Vec<TodoItem>> {
+fn apply_filter(todos: &[TodoItem], list_options: &ListQuery) -> TodoResult<Vec<TodoItem>> {
     let filtered: Vec<TodoItem> = todos
         .iter()
         .filter(|todo| list_options.item_passes_filters(todo))
