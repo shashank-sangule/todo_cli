@@ -8,7 +8,7 @@ pub struct Cli {
     pub file: String,
 
     #[command(subcommand)]
-    command: Commands,
+    pub command: Commands,
 }
 
 #[derive(Subcommand)]
