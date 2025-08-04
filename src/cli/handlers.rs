@@ -11,6 +11,7 @@ pub fn handle_commands(command: Commands, manager: &mut TodoManager) -> TodoResu
             priority,
         } => {
             manager.add_todo(todo.as_str(), due.as_deref(), priority.as_deref())?;
+            println!("✅ Todo added!");
         }
         Commands::Edit {
             id,
@@ -19,15 +20,19 @@ pub fn handle_commands(command: Commands, manager: &mut TodoManager) -> TodoResu
             priority,
         } => {
             manager.edit_todo(id, todo.as_str(), due.as_deref(), priority.as_deref())?;
+            println!("✏️ Todo edited!");
         }
         Commands::Toggle { id } => {
             manager.toggle_todo(id)?;
+            println!("🔄 Status toggled!");
         }
         Commands::Delete { id } => {
             manager.delete_todo(id)?;
+            println!("🗑️ Todo deleted!");
         }
         Commands::ClearList => {
-            manager.clear_all();
+            let count = manager.clear_all();
+            println!("🗑️ Cleared {count} todo(s)!");
         }
         Commands::List {
             asc,
