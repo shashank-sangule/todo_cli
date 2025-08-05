@@ -41,15 +41,15 @@ impl ListQuery {
 
     pub fn passes_status_filter(&self, item: &TodoItem) -> bool {
         match (self.only_complete, self.only_pending) {
-            (true, false) => item.status,  // Only completed items
-            (false, true) => !item.status, // Only pending items
-            _ => true,                     // No status filter or conflicting filters
+            (true, false) => item.completed(),
+            (false, true) => !item.completed(),
+            _ => true,
         }
     }
 
     pub fn passes_priority_filter(&self, item: &TodoItem) -> bool {
         match self.priority {
-            Some(required_priority) => item.priority == Some(required_priority),
+            Some(required_priority) => item.priority() == Some(required_priority),
             None => true, // No priority filter
         }
     }
@@ -72,14 +72,14 @@ impl ListQuery {
         if !self.due_today {
             return false;
         }
-        item.due.map(|d| d.date()) == Some(Local::now().naive_local().date())
+        item.due_date().map(|d| d.date()) == Some(Local::now().naive_local().date())
     }
 
     pub fn is_due_tomorrow(&self, item: &TodoItem) -> bool {
         if !self.due_tomorrow {
             return false;
         }
-        item.due.map(|d| d.date())
+        item.due_date().map(|d| d.date())
             == Some(Local::now().naive_local().date() + chrono::Duration::days(1))
     }
 
@@ -87,12 +87,13 @@ impl ListQuery {
         if !self.overdue {
             return false;
         }
-        item.due.is_some_and(|d| d < Local::now().naive_local())
+        item.due_date()
+            .is_some_and(|d| d < Local::now().naive_local())
     }
 
     pub fn is_due_within(&self, item: &TodoItem) -> bool {
         if let Some(days) = self.due_within {
-            item.due.is_some_and(|d| {
+            item.due_date().is_some_and(|d| {
                 let now = Local::now().naive_local();
                 let date = d.date();
                 date >= now.date() && date <= now.date() + chrono::Duration::days(days)

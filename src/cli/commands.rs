@@ -14,15 +14,19 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Commands {
     Add {
-        todo: String,
-        due: Option<String>,
+        title: String,
+        due_date: Option<String>,
         priority: Option<String>,
+        description: Option<String>,
+        tags: Option<Vec<String>>,
     },
     Edit {
         id: u32,
-        todo: String,
-        due: Option<String>,
+        title: Option<String>,
+        description: Option<String>,
+        due_date: Option<String>,
         priority: Option<String>,
+        tags: Option<Vec<String>>,
     },
     Toggle {
         id: u32,

@@ -12,7 +12,7 @@ pub struct TodoManager {
 impl TodoManager {
     pub fn new(file_path: String) -> TodoResult<Self> {
         let todos = Self::load_todos(&file_path)?;
-        let next_id = todos.iter().map(|t| t.id).max().unwrap_or(0) + 1;
+        let next_id = todos.iter().map(|t| t.id()).max().unwrap_or(0) + 1;
         Ok(TodoManager {
             todos,
             file_path,
@@ -46,23 +46,30 @@ impl TodoManager {
 
     pub fn add_todo(
         &mut self,
-        text: &str,
-        due: Option<&str>,
+        title: String,
+        description: Option<String>,
+        due_date: Option<String>,
         priority: Option<&str>,
+        tags: Option<Vec<String>>,
     ) -> TodoResult<()> {
-        let text = validate_text(text, 500)?;
-        let parsed_due = parse_due_date(due)?;
+        let title = validate_text(title.as_str(), 140)?;
+        let description = description
+            .map(|d| validate_text(d.as_str(), 1000))
+            .transpose()?;
+        let parsed_due = parse_due_date(due_date.as_deref())?;
         let parsed_priority = Self::parse_priority(priority)?;
         let next_id = self.next_id;
         self.next_id = next_id + 1;
 
-        let todo = TodoItem {
-            id: next_id,
-            todo: text,
-            status: false,
-            due: parsed_due,
-            priority: parsed_priority,
-        };
+        let todo = TodoItem::new(
+            next_id,
+            title,
+            description,
+            false,
+            parsed_due,
+            parsed_priority,
+            tags,
+        );
 
         self.todos.push(todo);
         self.save()?;
@@ -83,21 +90,30 @@ impl TodoManager {
     pub fn edit_todo(
         &mut self,
         id: u32,
-        new_text: &str,
+        new_title: Option<String>,
+        new_description: Option<String>,
         due: Option<&str>,
         priority: Option<&str>,
+        tags: Option<Vec<String>>,
     ) -> TodoResult<()> {
-        let new_text = validate_text(new_text, 500)?;
-
         let todo = self.find_todo_mut(id)?;
-        todo.todo = new_text.to_string();
 
-        if let Some(d) = due {
-            todo.due = parse_due_date(Some(d))?;
+        if let Some(text) = new_title {
+            todo.set_title(validate_text(&text, 140)?);
         }
-        if let Some(p) = priority {
-            todo.priority = Self::parse_priority(Some(p))?;
+        if let Some(description) = new_description {
+            todo.set_description(Some(validate_text(&description, 1000)?));
         }
+        if let Some(due_date) = due {
+            todo.set_due_date(parse_due_date(Some(due_date))?);
+        }
+        if let Some(priority_str) = priority {
+            todo.set_priority(Self::parse_priority(Some(priority_str))?);
+        }
+        if let Some(tags) = tags {
+            todo.set_tags(Some(tags));
+        }
+
         self.save()?;
         println!("✏️ Todo {id} edited!");
         Ok(())
@@ -107,21 +123,27 @@ impl TodoManager {
         validate_id(&id.to_string())?;
         self.todos
             .iter_mut()
-            .find(|t| t.id == id)
+            .find(|t| t.id() == id)
             .ok_or(TodoError::TodoNotFound { id })
     }
 
     pub fn toggle_todo(&mut self, id: u32) -> TodoResult<()> {
         let todo = self.find_todo_mut(id)?;
-        todo.status = !todo.status;
+        todo.set_completed(!todo.completed());
+
+        if todo.completed() {
+            println!("✅ Todo {id} marked as completed!");
+        } else {
+            println!("✅ Todo {id} marked as pending!");
+        }
+
         self.save()?;
-        println!("🔄 Status toggled for todo {id}!");
         Ok(())
     }
 
     pub fn delete_todo(&mut self, id: u32) -> TodoResult<()> {
         let original_len = self.todos.len();
-        self.todos.retain(|t| t.id != id);
+        self.todos.retain(|t| t.id() != id);
 
         if self.todos.len() < original_len {
             self.save()?;

@@ -11,18 +11,18 @@ pub fn display_todos(todos: &[TodoItem]) {
     println!("{}", "─".repeat(75));
 
     for item in todos {
-        let truncated_todo = truncate_text(&item.todo, 35);
-        let due_date = format_due_date(item.due);
+        let truncated_todo = truncate_text(item.title(), 35);
+        let due_date = format_due_date(item.due_date());
         let priority = item
-            .priority
+            .priority()
             .as_ref()
             .map(|p| p.to_string())
             .unwrap_or_else(|| "-".to_string());
 
         println!(
             "{:<3} {} {:<35} {:<25} {}",
-            item.id,
-            format_status(item.status),
+            item.id(),
+            format_status(item.completed()),
             truncated_todo,
             due_date,
             priority

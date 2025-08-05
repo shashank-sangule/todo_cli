@@ -6,19 +6,30 @@ use std::str::FromStr;
 pub fn handle_commands(command: Commands, manager: &mut TodoManager) -> TodoResult<()> {
     match command {
         Commands::Add {
-            todo,
-            due,
+            title,
+            description,
+            due_date,
             priority,
+            tags,
         } => {
-            manager.add_todo(todo.as_str(), due.as_deref(), priority.as_deref())?;
+            manager.add_todo(title, description, due_date, priority.as_deref(), tags)?;
         }
         Commands::Edit {
             id,
-            todo,
-            due,
+            title,
+            description,
+            due_date,
             priority,
+            tags,
         } => {
-            manager.edit_todo(id, todo.as_str(), due.as_deref(), priority.as_deref())?;
+            manager.edit_todo(
+                id,
+                title,
+                description,
+                due_date.as_deref(),
+                priority.as_deref(),
+                tags,
+            )?;
         }
         Commands::Toggle { id } => {
             manager.toggle_todo(id)?;
@@ -80,16 +91,20 @@ fn handle_list_command(todos: &mut [TodoItem], query: ListQuery) -> TodoResult<(
 
 fn apply_sorting(todos: &mut [TodoItem], sort_by: SortBy, ascending: bool) -> TodoResult<()> {
     let comparator = match (sort_by, ascending) {
-        (SortBy::Due, true) => |a: &TodoItem, b: &TodoItem| a.due.cmp(&b.due),
-        (SortBy::Due, false) => |a: &TodoItem, b: &TodoItem| b.due.cmp(&a.due),
-        (SortBy::Priority, true) => |a: &TodoItem, b: &TodoItem| a.priority.cmp(&b.priority),
-        (SortBy::Priority, false) => |a: &TodoItem, b: &TodoItem| b.priority.cmp(&a.priority),
-        (SortBy::DueThenPriority, true) => {
-            |a: &TodoItem, b: &TodoItem| a.due.cmp(&b.due).then(a.priority.cmp(&b.priority))
-        }
-        (SortBy::DueThenPriority, false) => {
-            |a: &TodoItem, b: &TodoItem| b.due.cmp(&a.due).then(b.priority.cmp(&a.priority))
-        }
+        (SortBy::Due, true) => |a: &TodoItem, b: &TodoItem| a.due_date().cmp(&b.due_date()),
+        (SortBy::Due, false) => |a: &TodoItem, b: &TodoItem| b.due_date().cmp(&a.due_date()),
+        (SortBy::Priority, true) => |a: &TodoItem, b: &TodoItem| a.priority().cmp(&b.priority()),
+        (SortBy::Priority, false) => |a: &TodoItem, b: &TodoItem| b.priority().cmp(&a.priority()),
+        (SortBy::DueThenPriority, true) => |a: &TodoItem, b: &TodoItem| {
+            a.due_date()
+                .cmp(&b.due_date())
+                .then(a.priority().cmp(&b.priority()))
+        },
+        (SortBy::DueThenPriority, false) => |a: &TodoItem, b: &TodoItem| {
+            b.due_date()
+                .cmp(&a.due_date())
+                .then(b.priority().cmp(&a.priority()))
+        },
     };
 
     todos.sort_by(comparator);
