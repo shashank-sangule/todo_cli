@@ -1,2 +1,3 @@
 /target
-*.json
+todo_list.json
+/data/*.json
