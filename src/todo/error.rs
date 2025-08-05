@@ -25,4 +25,18 @@ pub enum TodoError {
     InvalidSortField { field: String },
     #[error("❌ Todo too long: {actual} characters (max: {max})")]
     TodoTooLong { actual: usize, max: usize },
+    #[error("❌ Invalid ID: '{id}'. Please provide a valid number")]
+    InvalidId { id: String },
+    #[error("❌ Date is in the past: {date}")]
+    PastDate { date: String },
+}
+
+impl From<std::io::Error> for TodoError {
+    fn from(err: std::io::Error) -> Self {
+        TodoError::FileError {
+            operation: "access".to_string(),
+            path: "unknown".to_string(),
+            source: err,
+        }
+    }
 }

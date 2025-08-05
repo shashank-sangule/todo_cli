@@ -1,4 +1,5 @@
 use crate::todo::{Priority, TodoError, TodoItem, TodoResult};
+use crate::utils::validation::validate_id;
 use crate::utils::{parse_due_date, validate_text};
 use std::path::Path;
 
@@ -64,6 +65,8 @@ impl TodoManager {
         };
 
         self.todos.push(todo);
+        self.save()?;
+        println!("✅ Todo added with ID: {next_id}");
 
         Ok(())
     }
@@ -95,10 +98,13 @@ impl TodoManager {
         if let Some(p) = priority {
             todo.priority = Self::parse_priority(Some(p))?;
         }
+        self.save()?;
+        println!("✏️ Todo {id} edited!");
         Ok(())
     }
 
     pub fn find_todo_mut(&mut self, id: u32) -> TodoResult<&mut TodoItem> {
+        validate_id(&id.to_string())?;
         self.todos
             .iter_mut()
             .find(|t| t.id == id)
@@ -108,6 +114,8 @@ impl TodoManager {
     pub fn toggle_todo(&mut self, id: u32) -> TodoResult<()> {
         let todo = self.find_todo_mut(id)?;
         todo.status = !todo.status;
+        self.save()?;
+        println!("🔄 Status toggled for todo {id}!");
         Ok(())
     }
 
@@ -116,6 +124,8 @@ impl TodoManager {
         self.todos.retain(|t| t.id != id);
 
         if self.todos.len() < original_len {
+            self.save()?;
+            println!("🗑️ Todo {id} deleted!");
             Ok(())
         } else {
             Err(TodoError::TodoNotFound { id })
@@ -125,6 +135,11 @@ impl TodoManager {
     pub fn clear_all(&mut self) -> usize {
         let count = self.todos.len();
         self.todos.clear();
+        if let Err(e) = self.save() {
+            eprintln!("❌ Failed to clear todos: {e}");
+        } else {
+            println!("🗑️ Cleared {count} todo(s)!");
+        }
         count
     }
 }
