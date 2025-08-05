@@ -2,9 +2,37 @@
 name = "todo_app"
 version = "0.1.0"
 edition = "2021"
+authors = ["Shashank Sangule <your.sanguleshashank@gmail.com>"]
+description = "A command-line todo application built with Rust"
+readme = "README.md"
+homepage = "https://github.com/shashank-sangule/todo_cli"
+repository = "https://github.com/shashank-sangule/todo_cli"
+license = "MIT" 
+keywords = ["cli", "todo", "productivity", "task-management"]
+categories = ["command-line-utilities"]
 
 [dependencies]
+anyhow = "1.0.98"
 chrono = { version = "0.4.41", features = ["serde"] }
 clap = { version = "4.5.42", features = ["derive"] }
+colored = "3.0.0"
+config = "0.15.13"
+dirs = "6.0.0"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.141"
+thiserror = "2.0.12"
+
+[dev-dependencies]
+tempfile = "3.8"     
+assert_cmd = "2.0"    
+predicates = "3.0"    
+
+[[bin]]
+name = "todo"
+path = "src/main.rs"
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true 

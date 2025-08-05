@@ -5,7 +5,7 @@ use std::path::Path;
 pub struct TodoManager {
     pub todos: Vec<TodoItem>,
     pub file_path: String,
-    pub next_id: i32,
+    pub next_id: u32,
 }
 
 impl TodoManager {
@@ -24,18 +24,22 @@ impl TodoManager {
             return Ok(Vec::new());
         }
 
-        let content = std::fs::read_to_string(file_path)
-            .map_err(|e| TodoError::FileError(format!("Failed to read {file_path}: {e}")))?;
+        let content = std::fs::read_to_string(file_path).map_err(|e| TodoError::FileError {
+            operation: "read".to_string(),
+            path: file_path.to_string(),
+            source: e,
+        })?;
 
-        serde_json::from_str(&content)
-            .map_err(|e| TodoError::FileError(format!("Invalid JSON in {file_path}: {e}")))
+        serde_json::from_str(&content).map_err(TodoError::SerializationError)
     }
 
     pub fn save(&self) -> TodoResult<()> {
-        let content =
-            serde_json::to_string(&self.todos).map_err(|_| TodoError::SerializationError)?;
-        std::fs::write(&self.file_path, content)
-            .map_err(|e| TodoError::FileError(e.to_string()))?;
+        let content = serde_json::to_string(&self.todos)?;
+        std::fs::write(&self.file_path, content).map_err(|e| TodoError::FileError {
+            operation: "write".to_string(),
+            path: self.file_path.clone(),
+            source: e,
+        })?;
         Ok(())
     }
 
@@ -53,7 +57,7 @@ impl TodoManager {
 
         let todo = TodoItem {
             id: next_id,
-            todo: text.to_string(),
+            todo: text,
             status: false,
             due: parsed_due,
             priority: parsed_priority,
@@ -66,14 +70,16 @@ impl TodoManager {
 
     pub fn parse_priority(priority_str: Option<&str>) -> TodoResult<Option<Priority>> {
         match priority_str {
-            Some(p) => Ok(Some(p.parse().map_err(|_| TodoError::InvalidPriority)?)),
+            Some(p) => Ok(Some(p.parse().map_err(|_| TodoError::InvalidPriority {
+                input: p.to_string(),
+            })?)),
             None => Ok(None),
         }
     }
 
     pub fn edit_todo(
         &mut self,
-        id: i32,
+        id: u32,
         new_text: &str,
         due: Option<&str>,
         priority: Option<&str>,
@@ -92,27 +98,27 @@ impl TodoManager {
         Ok(())
     }
 
-    pub fn find_todo_mut(&mut self, id: i32) -> TodoResult<&mut TodoItem> {
+    pub fn find_todo_mut(&mut self, id: u32) -> TodoResult<&mut TodoItem> {
         self.todos
             .iter_mut()
             .find(|t| t.id == id)
-            .ok_or(TodoError::TodoNotFound(id))
+            .ok_or(TodoError::TodoNotFound { id })
     }
 
-    pub fn toggle_todo(&mut self, id: i32) -> TodoResult<()> {
+    pub fn toggle_todo(&mut self, id: u32) -> TodoResult<()> {
         let todo = self.find_todo_mut(id)?;
         todo.status = !todo.status;
         Ok(())
     }
 
-    pub fn delete_todo(&mut self, id: i32) -> TodoResult<()> {
+    pub fn delete_todo(&mut self, id: u32) -> TodoResult<()> {
         let original_len = self.todos.len();
         self.todos.retain(|t| t.id != id);
 
         if self.todos.len() < original_len {
             Ok(())
         } else {
-            Err(TodoError::TodoNotFound(id))
+            Err(TodoError::TodoNotFound { id })
         }
     }
 

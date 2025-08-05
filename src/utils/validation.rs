@@ -6,7 +6,10 @@ pub fn validate_text(text: &str, len: usize) -> TodoResult<String> {
         return Err(TodoError::EmptyTodo);
     }
     if trimmed.len() > len {
-        return Err(TodoError::TodoTooLong);
+        return Err(TodoError::TodoTooLong {
+            actual: trimmed.len(),
+            max: len,
+        });
     }
     Ok(trimmed.to_string())
 }

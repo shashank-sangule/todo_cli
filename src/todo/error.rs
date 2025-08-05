@@ -1,33 +1,28 @@
+use thiserror::Error;
+
 pub type TodoResult<T> = Result<T, TodoError>;
 
-#[derive(Debug)]
+#[derive(Error, Debug)]
 pub enum TodoError {
-    InvalidDateFormat,
-    InvalidPriority,
-    TodoNotFound(i32),
-    FileError(String),
+    #[error("❌ Invalid date format: '{input}'. Use: dd-mm-YYYY HH:MM or natural language like 'tomorrow'")]
+    InvalidDateFormat { input: String },
+    #[error("❌ Invalid priority: '{input}'. Use: high, medium, low (or h, m, l)")]
+    InvalidPriority { input: String },
+    #[error("❌ Todo with ID {id} not found. Use 'todo list' to see available todos")]
+    TodoNotFound { id: u32 },
+    #[error("❌ Failed to {operation} file '{path}'")]
+    FileError {
+        operation: String,
+        path: String,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("❌ Todo cannot be empty")]
     EmptyTodo,
-    SerializationError,
-    InvalidSortField,
-    TodoTooLong,
-}
-
-impl std::fmt::Display for TodoError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            TodoError::InvalidDateFormat => {
-                write!(f, "❌ Invalid date format. Use: dd-mm-YYYY HH:MM")
-            }
-            TodoError::InvalidPriority => write!(f, "❌ Invalid priority. Use: high, medium, low"),
-            TodoError::FileError(msg) => write!(f, "❌ File error: {msg}"),
-            TodoError::TodoNotFound(id) => write!(f, "❌ Todo with ID {id} not found"),
-            TodoError::EmptyTodo => write!(f, "❌ Todo cannot be empty"),
-            TodoError::SerializationError => write!(f, "❌ Failed to save/load todos"),
-            TodoError::InvalidSortField => {
-                write!(f, "❌ Invalid sort field: Use: due, priority, due+priority")
-            }
-
-            TodoError::TodoTooLong => write!(f, "❌ Todo cannot be more than 500 characters"),
-        }
-    }
+    #[error("❌ Failed to save/load todos")]
+    SerializationError(#[from] serde_json::Error),
+    #[error("❌ Invalid sort field: '{field}'. Available: due, priority, due+priority")]
+    InvalidSortField { field: String },
+    #[error("❌ Todo too long: {actual} characters (max: {max})")]
+    TodoTooLong { actual: usize, max: usize },
 }

@@ -36,7 +36,9 @@ pub fn parse_due_date(due_str: Option<&str>) -> TodoResult<Option<NaiveDateTime>
         return Ok(Some(dt));
     }
 
-    Err(TodoError::InvalidDateFormat)
+    Err(TodoError::InvalidDateFormat {
+        input: date_str.to_string(),
+    })
 }
 
 fn parse_relative_date(input: &str) -> TodoResult<Option<NaiveDateTime>> {

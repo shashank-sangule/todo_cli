@@ -6,7 +6,7 @@ use std::str::FromStr;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TodoItem {
-    pub id: i32,
+    pub id: u32,
     pub todo: String,
     pub status: bool,
     pub due: Option<NaiveDateTime>,
@@ -58,7 +58,9 @@ impl FromStr for SortBy {
             "due" => Ok(SortBy::Due),
             "priority" => Ok(SortBy::Priority),
             "due+priority" => Ok(SortBy::DueThenPriority),
-            _ => Err(TodoError::InvalidSortField),
+            _ => Err(TodoError::InvalidSortField {
+                field: s.to_string(),
+            }),
         }
     }
 }

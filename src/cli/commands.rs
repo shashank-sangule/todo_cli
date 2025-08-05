@@ -19,16 +19,16 @@ pub enum Commands {
         priority: Option<String>,
     },
     Edit {
-        id: i32,
+        id: u32,
         todo: String,
         due: Option<String>,
         priority: Option<String>,
     },
     Toggle {
-        id: i32,
+        id: u32,
     },
     Delete {
-        id: i32,
+        id: u32,
     },
     ClearList,
     List {
