@@ -1,29 +1,33 @@
 use chrono::{Local, NaiveDateTime};
 
 pub fn format_status(status: bool) -> &'static str {
-    if status { "✅" } else { "⬜" }
+    if status {
+        "✅"
+    } else {
+        "⬜"
+    }
 }
 
-pub fn format_due_date(due: Option<NaiveDateTime>) -> String {
-    match due {
-        Some(due) => {
+pub fn format_due_date(due_date: Option<NaiveDateTime>) -> String {
+    match due_date {
+        Some(due_date) => {
             let now = Local::now().naive_local();
-            let diff = due.signed_duration_since(now);
+            let diff = due_date.signed_duration_since(now);
 
             if diff.num_days() < 0 {
-                format!("🔴 {} (overdue)", due.format("%d-%m-%Y %H:%M"))
+                format!("🔴 {} (overdue)", due_date.format("%d-%m-%Y %H:%M"))
             } else if diff.num_days() == 0 {
-                format!("🟡 {} (today)", due.format("%H:%M"))
+                format!("🟡 {} (today)", due_date.format("%H:%M"))
             } else if diff.num_days() == 1 {
-                format!("🟢 {} (tomorrow)", due.format("%H:%M"))
+                format!("🟢 {} (tomorrow)", due_date.format("%H:%M"))
             } else if diff.num_days() <= 7 {
                 format!(
                     "🟢 {} ({} days)",
-                    due.format("%d-%m %H:%M"),
+                    due_date.format("%d-%m %H:%M"),
                     diff.num_days()
                 )
             } else {
-                format!("⚪ {}", due.format("%d-%m-%Y"))
+                format!("⚪ {}", due_date.format("%d-%m-%Y"))
             }
         }
         None => "-".to_string(),

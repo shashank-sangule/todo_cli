@@ -64,6 +64,18 @@ impl TodoItem {
         self.tags.as_deref()
     }
 
+    pub fn tags_string(&self) -> Option<String> {
+        self.tags.as_ref().map(|t| t.join(", "))
+    }
+
+    pub fn is_overdue(&self) -> bool {
+        if let Some(due) = self.due_date {
+            due < Local::now().naive_local() && !self.completed
+        } else {
+            false
+        }
+    }
+
     pub fn set_title(&mut self, title: String) {
         self.title = title;
         self.updated_at = Local::now().naive_local();

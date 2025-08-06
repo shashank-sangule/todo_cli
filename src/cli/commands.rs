@@ -15,9 +15,13 @@ pub struct Cli {
 pub enum Commands {
     Add {
         title: String,
+        #[arg(long)]
         due_date: Option<String>,
+        #[arg(long)]
         priority: Option<String>,
+        #[arg(long)]
         description: Option<String>,
+        #[arg(long, value_delimiter = ',')]
         tags: Option<Vec<String>>,
     },
     Edit {
@@ -36,25 +40,25 @@ pub enum Commands {
     },
     ClearList,
     List {
-        #[arg(short, long, group = "order", conflicts_with = "desc")]
+        #[arg(long, group = "order", conflicts_with = "desc")]
         asc: bool,
-        #[arg(short, long, group = "order", conflicts_with = "asc")]
+        #[arg(long, group = "order", conflicts_with = "asc")]
         desc: bool,
         #[arg(long, value_parser=["due", "priority", "due+priority"])]
         sort_by: Option<String>,
-        #[arg(short, long, group = "filter-status")]
+        #[arg(long, group = "filter-status")]
         only_complete: bool,
-        #[arg(short, long, group = "filter-status")]
+        #[arg(long, group = "filter-status")]
         only_pending: bool,
         #[arg(long, value_parser=["high", "medium", "low"])]
         priority: Option<String>,
-        #[arg(short, long, group = "filter-time")]
+        #[arg(long, group = "filter-time")]
         overdue: bool,
-        #[arg(short, long, group = "filter-time")]
+        #[arg(long, group = "filter-time")]
         due_today: bool,
-        #[arg(short, long, group = "filter-time")]
+        #[arg(long, group = "filter-time")]
         due_tomorrow: bool,
-        #[arg(short, long, group = "filter-time")]
+        #[arg(long, group = "filter-time")]
         due_within: Option<i64>,
     },
 }

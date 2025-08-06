@@ -29,6 +29,8 @@ pub enum TodoError {
     InvalidId { id: String },
     #[error("❌ Date is in the past: {date}")]
     PastDate { date: String },
+    #[error("❌ Invalid date: {input}. Reason: {reason}")]
+    InvalidDate { input: String, reason: String },
 }
 
 impl From<std::io::Error> for TodoError {

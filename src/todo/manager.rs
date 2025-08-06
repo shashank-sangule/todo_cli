@@ -31,6 +31,10 @@ impl TodoManager {
             source: e,
         })?;
 
+        if content.trim().is_empty() {
+            return Ok(Vec::new());
+        }
+
         serde_json::from_str(&content).map_err(TodoError::SerializationError)
     }
 

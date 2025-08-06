@@ -1,5 +1,6 @@
 use crate::todo::{TodoError, TodoResult};
 use chrono::{Local, NaiveDate, NaiveDateTime};
+use chrono_english::{parse_date_string, Dialect};
 
 const DATE_FORMATS: &[&str] = &[
     "%d-%m-%Y %H:%M", // 25-12-2023 14:30
@@ -33,6 +34,13 @@ pub fn parse_due_date(due_str: Option<&str>) -> TodoResult<Option<NaiveDateTime>
     }
 
     if let Some(dt) = parse_relative_date(date_str)? {
+        //check if the parsed date is valid
+        if dt.date() < Local::now().date_naive() {
+            return Err(TodoError::InvalidDate {
+                input: date_str.to_string(),
+                reason: "Date cannot be in the past".to_string(),
+            });
+        }
         return Ok(Some(dt));
     }
 
@@ -42,27 +50,22 @@ pub fn parse_due_date(due_str: Option<&str>) -> TodoResult<Option<NaiveDateTime>
 }
 
 fn parse_relative_date(input: &str) -> TodoResult<Option<NaiveDateTime>> {
-    let now = Local::now().naive_local();
+    let now = Local::now();
 
-    match input.to_lowercase().as_str() {
-        "today" => Ok(Some(now.date().and_hms_opt(23, 59, 0).unwrap())),
-        "tomorrow" => Ok(Some(
-            (now.date() + chrono::Duration::days(1))
-                .and_hms_opt(23, 59, 0)
-                .unwrap(),
-        )),
-        input if input.ends_with("d") || input.ends_with(" days") => {
-            let days_str = input.trim_end_matches("d").trim_end_matches(" days").trim();
-            if let Ok(days) = days_str.parse::<i64>() {
-                Ok(Some(
-                    (now.date() + chrono::Duration::days(days))
-                        .and_hms_opt(23, 59, 0)
-                        .unwrap(),
-                ))
-            } else {
-                Ok(None)
-            }
+    let dialect = Dialect::Uk; // Use UK dialect for date parsing
+    match parse_date_string(input, now, dialect) {
+        Ok(date) => {
+            let naive_date = date.naive_utc().date();
+            let naive_datetime = NaiveDateTime::new(naive_date, NaiveDateTime::default().time());
+            Ok(Some(naive_datetime))
         }
-        _ => Ok(None),
+        Err(e) => {
+            if e.to_string().contains("no date found") {
+                return Ok(None);
+            }
+            Err(TodoError::InvalidDateFormat {
+                input: input.to_string(),
+            })
+        }
     }
 }
