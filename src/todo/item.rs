@@ -115,14 +115,16 @@ pub enum Priority {
 }
 
 impl FromStr for Priority {
-    type Err = ();
+    type Err = TodoError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "high" => Ok(Priority::High),
             "medium" => Ok(Priority::Medium),
             "low" => Ok(Priority::Low),
-            _ => Err(()),
+            _ => Err(TodoError::InvalidPriority {
+                input: s.to_string(),
+            }),
         }
     }
 }
