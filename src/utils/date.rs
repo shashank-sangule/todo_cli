@@ -34,8 +34,7 @@ pub fn parse_due_date(due_str: Option<&str>) -> TodoResult<Option<NaiveDateTime>
     }
 
     if let Some(dt) = parse_relative_date(date_str)? {
-        //check if the parsed date is valid
-        if dt.date() < Local::now().date_naive() {
+        if dt < Local::now().naive_local() {
             return Err(TodoError::InvalidDate {
                 input: date_str.to_string(),
                 reason: "Date cannot be in the past".to_string(),
