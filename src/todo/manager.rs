@@ -169,3 +169,251 @@ impl TodoManager {
         count
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::NamedTempFile;
+
+    fn create_test_file() -> NamedTempFile {
+        NamedTempFile::new().expect("Failed to create temp file")
+    }
+
+    fn create_test_todos_json() -> String {
+        r#"[
+            {
+                "id": 1,
+                "title": "Test Todo",
+                "description": "Test description",
+                "completed": false,
+                "due_date": "2024-12-25T14:30:00",
+                "priority": "High",
+                "tags": ["work"],
+                "created_at": "2024-01-01T10:00:00",
+                "updated_at": "2024-01-01T10:00:00"
+            }
+        ]"#
+        .to_string()
+    }
+
+    #[test]
+    fn test_new_with_nonexistent_file() {
+        let temp_file = create_test_file();
+        let file_path = temp_file.path().to_str().unwrap();
+
+        // Delete the file so it doesn't exist
+        fs::remove_file(file_path).ok();
+
+        let manager = TodoManager::new(file_path.to_string()).unwrap();
+
+        assert_eq!(manager.todos.len(), 0);
+        assert_eq!(manager.next_id, 1);
+        assert_eq!(manager.file_path, file_path);
+    }
+
+    #[test]
+    fn test_new_with_existing_file() {
+        let temp_file = create_test_file();
+        let file_path = temp_file.path().to_str().unwrap();
+
+        fs::write(file_path, create_test_todos_json()).unwrap();
+
+        let manager = TodoManager::new(file_path.to_string()).unwrap();
+
+        assert_eq!(manager.todos.len(), 1);
+        assert_eq!(manager.next_id, 2); // max id + 1
+        assert_eq!(manager.todos[0].id(), 1);
+        assert_eq!(manager.todos[0].title(), "Test Todo");
+    }
+
+    #[test]
+    fn test_load_todos_empty_file() {
+        let temp_file = create_test_file();
+        let file_path = temp_file.path().to_str().unwrap();
+
+        fs::write(file_path, "").unwrap();
+
+        let todos = TodoManager::load_todos(file_path).unwrap();
+        assert_eq!(todos.len(), 0);
+    }
+
+    #[test]
+    fn test_add_todo() {
+        let temp_file = create_test_file();
+        let file_path = temp_file.path().to_str().unwrap();
+        fs::remove_file(file_path).ok();
+
+        let mut manager = TodoManager::new(file_path.to_string()).unwrap();
+
+        manager
+            .add_todo(
+                "New Task".to_string(),
+                Some("Task description".to_string()),
+                None,
+                Some("high"),
+                Some(vec!["work".to_string()]),
+            )
+            .unwrap();
+
+        assert_eq!(manager.todos.len(), 1);
+        assert_eq!(manager.next_id, 2);
+        assert_eq!(manager.todos[0].title(), "New Task");
+        assert_eq!(manager.todos[0].description(), Some("Task description"));
+        assert_eq!(manager.todos[0].priority(), Some(Priority::High));
+        assert_eq!(
+            manager.todos[0].tags(),
+            Some(["work".to_string()].as_slice())
+        );
+
+        // Verify file was saved
+        assert!(Path::new(file_path).exists());
+    }
+
+    #[test]
+    fn test_add_todo_validation_error() {
+        let temp_file = create_test_file();
+        let file_path = temp_file.path().to_str().unwrap();
+        fs::remove_file(file_path).ok();
+
+        let mut manager = TodoManager::new(file_path.to_string()).unwrap();
+
+        // Test title too long
+        let long_title = "a".repeat(150);
+        let result = manager.add_todo(long_title, None, None, None, None);
+
+        assert!(result.is_err());
+        assert_eq!(manager.todos.len(), 0); // Should not add invalid todo
+    }
+
+    #[test]
+    fn test_edit_todo() {
+        let temp_file = create_test_file();
+        let file_path = temp_file.path().to_str().unwrap();
+        fs::write(file_path, create_test_todos_json()).unwrap();
+
+        let mut manager = TodoManager::new(file_path.to_string()).unwrap();
+
+        manager
+            .edit_todo(
+                1,
+                Some("Updated Title".to_string()),
+                Some("Updated description".to_string()),
+                None,
+                Some("low"),
+                Some(vec!["personal".to_string()]),
+            )
+            .unwrap();
+
+        let todo = &manager.todos[0];
+        assert_eq!(todo.title(), "Updated Title");
+        assert_eq!(todo.description(), Some("Updated description"));
+        assert_eq!(todo.priority(), Some(Priority::Low));
+        assert_eq!(todo.tags(), Some(["personal".to_string()].as_slice()));
+    }
+
+    #[test]
+    fn test_edit_nonexistent_todo() {
+        let temp_file = create_test_file();
+        let file_path = temp_file.path().to_str().unwrap();
+        fs::remove_file(file_path).ok();
+
+        let mut manager = TodoManager::new(file_path.to_string()).unwrap();
+
+        let result = manager.edit_todo(999, Some("Title".to_string()), None, None, None, None);
+
+        assert!(result.is_err());
+        if let Err(TodoError::TodoNotFound { id }) = result {
+            assert_eq!(id, 999);
+        } else {
+            panic!("Expected TodoNotFound error");
+        }
+    }
+
+    #[test]
+    fn test_toggle_todo() {
+        let temp_file = create_test_file();
+        let file_path = temp_file.path().to_str().unwrap();
+        fs::write(file_path, create_test_todos_json()).unwrap();
+
+        let mut manager = TodoManager::new(file_path.to_string()).unwrap();
+
+        // Initially not completed
+        assert!(!manager.todos[0].completed());
+
+        manager.toggle_todo(1).unwrap();
+        assert!(manager.todos[0].completed());
+
+        manager.toggle_todo(1).unwrap();
+        assert!(!manager.todos[0].completed());
+    }
+
+    #[test]
+    fn test_delete_todo() {
+        let temp_file = create_test_file();
+        let file_path = temp_file.path().to_str().unwrap();
+        fs::write(file_path, create_test_todos_json()).unwrap();
+
+        let mut manager = TodoManager::new(file_path.to_string()).unwrap();
+
+        assert_eq!(manager.todos.len(), 1);
+
+        manager.delete_todo(1).unwrap();
+
+        assert_eq!(manager.todos.len(), 0);
+    }
+
+    #[test]
+    fn test_delete_nonexistent_todo() {
+        let temp_file = create_test_file();
+        let file_path = temp_file.path().to_str().unwrap();
+        fs::remove_file(file_path).ok();
+
+        let mut manager = TodoManager::new(file_path.to_string()).unwrap();
+
+        let result = manager.delete_todo(999);
+
+        assert!(result.is_err());
+        if let Err(TodoError::TodoNotFound { id }) = result {
+            assert_eq!(id, 999);
+        } else {
+            panic!("Expected TodoNotFound error");
+        }
+    }
+
+    #[test]
+    fn test_clear_all() {
+        let temp_file = create_test_file();
+        let file_path = temp_file.path().to_str().unwrap();
+        fs::write(file_path, create_test_todos_json()).unwrap();
+
+        let mut manager = TodoManager::new(file_path.to_string()).unwrap();
+
+        assert_eq!(manager.todos.len(), 1);
+
+        let count = manager.clear_all();
+
+        assert_eq!(count, 1);
+        assert_eq!(manager.todos.len(), 0);
+    }
+
+    #[test]
+    fn test_parse_priority() {
+        assert_eq!(
+            TodoManager::parse_priority(Some("high")).unwrap(),
+            Some(Priority::High)
+        );
+        assert_eq!(
+            TodoManager::parse_priority(Some("medium")).unwrap(),
+            Some(Priority::Medium)
+        );
+        assert_eq!(
+            TodoManager::parse_priority(Some("low")).unwrap(),
+            Some(Priority::Low)
+        );
+        assert_eq!(TodoManager::parse_priority(None).unwrap(), None);
+
+        let result = TodoManager::parse_priority(Some("invalid"));
+        assert!(result.is_err());
+    }
+}

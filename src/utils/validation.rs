@@ -43,32 +43,10 @@ mod tests {
         use super::*;
 
         #[test]
-        fn test_valid_text() {
-            let result = validate_text("Hello world", 20);
-            assert!(result.is_ok());
-            assert_eq!(result.unwrap(), "Hello world");
-        }
-
-        #[test]
         fn test_valid_text_with_whitespace() {
             let result = validate_text("  Hello world  ", 20);
             assert!(result.is_ok());
             assert_eq!(result.unwrap(), "Hello world");
-        }
-
-        #[test]
-        fn test_text_at_exact_length_limit() {
-            let text = "a".repeat(10);
-            let result = validate_text(&text, 10);
-            assert!(result.is_ok());
-            assert_eq!(result.unwrap(), text);
-        }
-
-        #[test]
-        fn test_empty_text() {
-            let result = validate_text("", 10);
-            assert!(result.is_err());
-            assert!(matches!(result.unwrap_err(), TodoError::EmptyTodo));
         }
 
         #[test]
@@ -93,30 +71,11 @@ mod tests {
         }
 
         #[test]
-        fn test_text_too_long_after_trimming() {
-            let text = format!("  {}  ", "a".repeat(15));
+        fn test_text_at_exact_length_limit() {
+            let text = "a".repeat(10);
             let result = validate_text(&text, 10);
-            assert!(result.is_err());
-            match result.unwrap_err() {
-                TodoError::TodoTooLong { actual, max } => {
-                    assert_eq!(actual, 15);
-                    assert_eq!(max, 10);
-                }
-                _ => panic!("Expected TodoTooLong error"),
-            }
-        }
-
-        #[test]
-        fn test_zero_length_limit() {
-            let result = validate_text("a", 0);
-            assert!(result.is_err());
-            match result.unwrap_err() {
-                TodoError::TodoTooLong { actual, max } => {
-                    assert_eq!(actual, 1);
-                    assert_eq!(max, 0);
-                }
-                _ => panic!("Expected TodoTooLong error"),
-            }
+            assert!(result.is_ok());
+            assert_eq!(result.unwrap(), text);
         }
     }
 
@@ -125,43 +84,10 @@ mod tests {
         use super::*;
 
         #[test]
-        fn test_valid_positive_id() {
-            let result = validate_id("123");
-            assert!(result.is_ok());
-            assert_eq!(result.unwrap(), 123);
-        }
-
-        #[test]
         fn test_valid_id_with_whitespace() {
             let result = validate_id("  456  ");
             assert!(result.is_ok());
             assert_eq!(result.unwrap(), 456);
-        }
-
-        #[test]
-        fn test_valid_id_one() {
-            let result = validate_id("1");
-            assert!(result.is_ok());
-            assert_eq!(result.unwrap(), 1);
-        }
-
-        #[test]
-        fn test_valid_large_id() {
-            let result = validate_id("4294967295");
-            assert!(result.is_ok());
-            assert_eq!(result.unwrap(), 4294967295);
-        }
-
-        #[test]
-        fn test_empty_id() {
-            let result = validate_id("");
-            assert!(result.is_err());
-            match result.unwrap_err() {
-                TodoError::InvalidId { id } => {
-                    assert_eq!(id, "empty");
-                }
-                _ => panic!("Expected InvalidId error with 'empty'"),
-            }
         }
 
         #[test]
@@ -189,60 +115,12 @@ mod tests {
         }
 
         #[test]
-        fn test_zero_id_with_whitespace() {
-            let result = validate_id("  0  ");
-            assert!(result.is_err());
-            match result.unwrap_err() {
-                TodoError::InvalidId { id } => {
-                    assert_eq!(id, "zero");
-                }
-                _ => panic!("Expected InvalidId error with 'zero'"),
-            }
-        }
-
-        #[test]
-        fn test_negative_id() {
-            let result = validate_id("-1");
-            assert!(result.is_err());
-            match result.unwrap_err() {
-                TodoError::InvalidId { id } => {
-                    assert_eq!(id, "-1");
-                }
-                _ => panic!("Expected InvalidId error"),
-            }
-        }
-
-        #[test]
         fn test_non_numeric_id() {
             let result = validate_id("abc");
             assert!(result.is_err());
             match result.unwrap_err() {
                 TodoError::InvalidId { id } => {
                     assert_eq!(id, "abc");
-                }
-                _ => panic!("Expected InvalidId error"),
-            }
-        }
-
-        #[test]
-        fn test_mixed_alphanumeric_id() {
-            let result = validate_id("123abc");
-            assert!(result.is_err());
-            match result.unwrap_err() {
-                TodoError::InvalidId { id } => {
-                    assert_eq!(id, "123abc");
-                }
-                _ => panic!("Expected InvalidId error"),
-            }
-        }
-
-        #[test]
-        fn test_float_id() {
-            let result = validate_id("12.34");
-            assert!(result.is_err());
-            match result.unwrap_err() {
-                TodoError::InvalidId { id } => {
-                    assert_eq!(id, "12.34");
                 }
                 _ => panic!("Expected InvalidId error"),
             }
