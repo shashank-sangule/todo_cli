@@ -76,7 +76,7 @@ impl TodoItem {
 
     pub fn is_overdue(&self) -> bool {
         if let Some(due) = self.due_date {
-            due < Local::now().naive_local() && !self.completed
+            due + chrono::Duration::minutes(5) < Local::now().naive_local() && !self.completed
         } else {
             false
         }
@@ -527,13 +527,16 @@ mod tests {
     fn test_overdue_edge_cases() {
         let now = Local::now().naive_local();
 
-        let one_second_ago = now - chrono::Duration::seconds(1);
+        let todo_now = TodoItem::new(1, "Now".to_string(), None, false, Some(now), None, None);
+        assert!(!todo_now.is_overdue());
+
+        let five_minutes_ago = now - chrono::Duration::minutes(5);
         let todo_past = TodoItem::new(
             1,
             "Past".to_string(),
             None,
             false,
-            Some(one_second_ago),
+            Some(five_minutes_ago),
             None,
             None,
         );
