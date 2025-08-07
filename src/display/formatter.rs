@@ -12,7 +12,8 @@ pub fn format_due_date(due_date: Option<NaiveDateTime>) -> String {
     match due_date {
         Some(due_date) => {
             let now = Local::now().naive_local();
-            let diff = due_date.signed_duration_since(now);
+            let due_date_date = due_date.date();
+            let diff = due_date_date.signed_duration_since(now.date());
 
             if diff.num_days() < 0 {
                 format!("🔴 {} (overdue)", due_date.format("%d-%m-%Y %H:%M"))

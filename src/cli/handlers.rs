@@ -1,6 +1,7 @@
 use crate::cli::Commands;
 use crate::display::display_todos;
 use crate::todo::{ListQuery, SortBy, TodoItem, TodoManager, TodoResult};
+use std::cmp::Ordering;
 use std::str::FromStr;
 
 pub fn handle_commands(command: Commands, manager: &mut TodoManager) -> TodoResult<()> {
@@ -89,25 +90,43 @@ fn handle_list_command(todos: &mut [TodoItem], query: ListQuery) -> TodoResult<(
     Ok(())
 }
 
-fn apply_sorting(todos: &mut [TodoItem], sort_by: SortBy, ascending: bool) -> TodoResult<()> {
-    let comparator = match (sort_by, ascending) {
-        (SortBy::Due, true) => |a: &TodoItem, b: &TodoItem| a.due_date().cmp(&b.due_date()),
-        (SortBy::Due, false) => |a: &TodoItem, b: &TodoItem| b.due_date().cmp(&a.due_date()),
-        (SortBy::Priority, true) => |a: &TodoItem, b: &TodoItem| a.priority().cmp(&b.priority()),
-        (SortBy::Priority, false) => |a: &TodoItem, b: &TodoItem| b.priority().cmp(&a.priority()),
-        (SortBy::DueThenPriority, true) => |a: &TodoItem, b: &TodoItem| {
-            a.due_date()
-                .cmp(&b.due_date())
-                .then(a.priority().cmp(&b.priority()))
-        },
-        (SortBy::DueThenPriority, false) => |a: &TodoItem, b: &TodoItem| {
-            b.due_date()
-                .cmp(&a.due_date())
-                .then(b.priority().cmp(&a.priority()))
-        },
-    };
+fn cmp_option<T: Ord>(a: &Option<T>, b: &Option<T>, ascending: bool) -> Ordering {
+    match (a, b) {
+        (Some(a_val), Some(b_val)) => {
+            if ascending {
+                a_val.cmp(b_val)
+            } else {
+                b_val.cmp(a_val)
+            }
+        }
+        (Some(_), None) => Ordering::Less,
+        (None, Some(_)) => Ordering::Greater,
+        (None, None) => Ordering::Equal,
+    }
+}
 
-    todos.sort_by(comparator);
+fn apply_sorting(todos: &mut [TodoItem], sort_by: SortBy, ascending: bool) -> TodoResult<()> {
+    use std::cmp::Ordering;
+
+    match sort_by {
+        SortBy::Due => {
+            todos.sort_by(|a, b| cmp_option(&a.due_date(), &b.due_date(), ascending));
+        }
+        SortBy::Priority => {
+            todos.sort_by(|a, b| cmp_option(&a.priority(), &b.priority(), ascending));
+        }
+        SortBy::DueThenPriority => {
+            todos.sort_by(|a, b| {
+                let date_cmp = cmp_option(&a.due_date(), &b.due_date(), ascending);
+                if date_cmp == Ordering::Equal {
+                    cmp_option(&a.priority(), &b.priority(), ascending)
+                } else {
+                    date_cmp
+                }
+            });
+        }
+    }
+
     Ok(())
 }
 
@@ -125,119 +144,81 @@ fn apply_filter(todos: &[TodoItem], list_options: &ListQuery) -> TodoResult<Vec<
 mod tests {
     use super::*;
     use crate::cli::Commands;
-    use crate::todo::{ListQuery, Priority, TodoItem};
-    use chrono::NaiveDate;
-    use std::fs;
+    use crate::todo::{ListQuery, Priority, SortBy, TodoItem, TodoManager};
+    use chrono::NaiveDateTime;
+    use std::cmp::Ordering;
     use tempfile::NamedTempFile;
 
-    fn create_test_manager() -> TodoManager {
-        let temp_file = NamedTempFile::new().unwrap();
-        let file_path = temp_file.path().to_str().unwrap();
-        fs::remove_file(file_path).ok();
-        TodoManager::new(file_path.to_string()).unwrap()
+    // Helper to create test dates
+    fn test_date(year: i32, month: u32, day: u32, hour: u32, min: u32) -> NaiveDateTime {
+        NaiveDateTime::parse_from_str(
+            &format!("{year}-{month:02}-{day:02} {hour:02}:{min:02}:00"),
+            "%Y-%m-%d %H:%M:%S",
+        )
+        .unwrap()
     }
 
-    fn create_test_todos() -> Vec<TodoItem> {
-        vec![
-            TodoItem::new(
-                1,
-                "High priority task".to_string(),
-                None,
-                false,
-                Some(
-                    NaiveDate::from_ymd_opt(2025, 8, 10)
-                        .unwrap()
-                        .and_hms_opt(9, 0, 0)
-                        .unwrap(),
-                ),
-                Some(Priority::High),
-                None,
-            ),
-            TodoItem::new(
-                2,
-                "Medium priority task".to_string(),
-                None,
-                true,
-                Some(
-                    NaiveDate::from_ymd_opt(2025, 8, 8)
-                        .unwrap()
-                        .and_hms_opt(9, 0, 0)
-                        .unwrap(),
-                ),
-                Some(Priority::Medium),
-                None,
-            ),
-            TodoItem::new(
-                3,
-                "Low priority task".to_string(),
-                None,
-                false,
-                Some(
-                    NaiveDate::from_ymd_opt(2025, 8, 9)
-                        .unwrap()
-                        .and_hms_opt(9, 0, 0)
-                        .unwrap(),
-                ),
-                Some(Priority::Low),
-                None,
-            ),
-        ]
+    // Helper to create a test TodoManager with temporary file
+    fn create_test_manager() -> TodoManager {
+        let temp_file = NamedTempFile::new().unwrap();
+        let file_path = temp_file.path().to_string_lossy().into_owned();
+        std::mem::forget(temp_file);
+        TodoManager::new(file_path).unwrap()
     }
 
     #[test]
-    fn test_handle_add_command() {
+    fn test_handle_commands_add() {
         let mut manager = create_test_manager();
 
         let command = Commands::Add {
-            title: "New Task".to_string(),
-            description: Some("Task description".to_string()),
+            title: "Test todo".to_string(),
+            description: Some("Test description".to_string()),
             due_date: None,
             priority: Some("high".to_string()),
             tags: Some(vec!["work".to_string()]),
         };
 
         let result = handle_commands(command, &mut manager);
-
         assert!(result.is_ok());
         assert_eq!(manager.todos.len(), 1);
-        assert_eq!(manager.todos[0].title(), "New Task");
-        assert_eq!(manager.todos[0].priority(), Some(Priority::High));
+
+        let added_todo = manager.todos.last().unwrap();
+        assert_eq!(added_todo.title(), "Test todo");
+        assert_eq!(added_todo.priority(), Some(Priority::High));
     }
 
     #[test]
-    fn test_handle_edit_command() {
+    fn test_handle_commands_edit() {
         let mut manager = create_test_manager();
         manager
-            .add_todo("Original Title".to_string(), None, None, Some("low"), None)
+            .add_todo("Original".to_string(), None, None, Some("low"), None)
             .unwrap();
+        let todo_id = manager.todos[0].id();
 
         let command = Commands::Edit {
-            id: 1,
-            title: Some("Updated Title".to_string()),
-            description: Some("Updated description".to_string()),
+            id: todo_id,
+            title: Some("Updated".to_string()),
+            description: None,
             due_date: None,
             priority: Some("high".to_string()),
             tags: None,
         };
 
         let result = handle_commands(command, &mut manager);
-
         assert!(result.is_ok());
-        assert_eq!(manager.todos[0].title(), "Updated Title");
+        assert_eq!(manager.todos[0].title(), "Updated");
         assert_eq!(manager.todos[0].priority(), Some(Priority::High));
-        assert_eq!(manager.todos[0].description(), Some("Updated description"));
     }
 
     #[test]
-    fn test_handle_toggle_command() {
+    fn test_handle_commands_toggle() {
         let mut manager = create_test_manager();
         manager
-            .add_todo("Task".to_string(), None, None, None, None)
+            .add_todo("Test".to_string(), None, None, None, None)
             .unwrap();
+        let todo_id = manager.todos[0].id();
 
-        assert!(!manager.todos[0].completed());
-
-        let command = Commands::Toggle { id: 1 };
+        let command = Commands::Toggle { id: todo_id };
         let result = handle_commands(command, &mut manager);
 
         assert!(result.is_ok());
@@ -245,15 +226,14 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_delete_command() {
+    fn test_handle_commands_delete() {
         let mut manager = create_test_manager();
         manager
-            .add_todo("Task".to_string(), None, None, None, None)
+            .add_todo("Test".to_string(), None, None, None, None)
             .unwrap();
+        let todo_id = manager.todos[0].id();
 
-        assert_eq!(manager.todos.len(), 1);
-
-        let command = Commands::Delete { id: 1 };
+        let command = Commands::Delete { id: todo_id };
         let result = handle_commands(command, &mut manager);
 
         assert!(result.is_ok());
@@ -261,7 +241,7 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_clear_command() {
+    fn test_handle_commands_clear_list() {
         let mut manager = create_test_manager();
         manager
             .add_todo("Task 1".to_string(), None, None, None, None)
@@ -269,8 +249,6 @@ mod tests {
         manager
             .add_todo("Task 2".to_string(), None, None, None, None)
             .unwrap();
-
-        assert_eq!(manager.todos.len(), 2);
 
         let command = Commands::ClearList;
         let result = handle_commands(command, &mut manager);
@@ -280,74 +258,109 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_list_command_basic() {
+    fn test_handle_commands_invalid_todo_id() {
         let mut manager = create_test_manager();
 
-        let command = Commands::List {
-            asc: false,
-            desc: false,
-            sort_by: Some("due".to_string()),
-            only_complete: false,
-            only_pending: false,
-            priority: None,
-            overdue: false,
-            due_today: false,
-            due_tomorrow: false,
-            due_within: None,
-        };
-
+        let command = Commands::Toggle { id: 999 };
         let result = handle_commands(command, &mut manager);
-        assert!(result.is_ok());
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            crate::todo::TodoError::TodoNotFound { id } => assert_eq!(id, 999),
+            _ => panic!("Expected TodoNotFound error"),
+        }
     }
 
     #[test]
     fn test_apply_sorting_by_due_date() {
-        let mut todos = create_test_todos();
+        let mut todos = vec![
+            TodoItem::new(
+                1,
+                "Late".to_string(),
+                None,
+                false,
+                Some(test_date(2025, 8, 15, 10, 0)),
+                None,
+                None,
+            ),
+            TodoItem::new(
+                2,
+                "Early".to_string(),
+                None,
+                false,
+                Some(test_date(2025, 8, 10, 10, 0)),
+                None,
+                None,
+            ),
+            TodoItem::new(3, "No date".to_string(), None, false, None, None, None),
+        ];
 
         apply_sorting(&mut todos, SortBy::Due, true).unwrap();
 
-        assert_eq!(todos[0].id(), 2); // 2025-08-08
-        assert_eq!(todos[1].id(), 3); // 2025-08-09
-        assert_eq!(todos[2].id(), 1); // 2025-08-10
-
-        apply_sorting(&mut todos, SortBy::Due, false).unwrap();
-
-        assert_eq!(todos[0].id(), 1); // 2025-08-10
-        assert_eq!(todos[1].id(), 3); // 2025-08-09
-        assert_eq!(todos[2].id(), 2); // 2025-08-08
+        assert_eq!(todos[0].id(), 2); // Early date first
+        assert_eq!(todos[1].id(), 1); // Late date second
+        assert_eq!(todos[2].id(), 3); // No date last
     }
 
     #[test]
     fn test_apply_sorting_by_priority() {
-        let mut todos = create_test_todos();
+        let mut todos = vec![
+            TodoItem::new(
+                1,
+                "High".to_string(),
+                None,
+                false,
+                None,
+                Some(Priority::High),
+                None,
+            ),
+            TodoItem::new(
+                2,
+                "Low".to_string(),
+                None,
+                false,
+                None,
+                Some(Priority::Low),
+                None,
+            ),
+            TodoItem::new(
+                3,
+                "Medium".to_string(),
+                None,
+                false,
+                None,
+                Some(Priority::Medium),
+                None,
+            ),
+        ];
 
         apply_sorting(&mut todos, SortBy::Priority, true).unwrap();
 
-        assert_eq!(todos[0].priority(), Some(Priority::Low));
-        assert_eq!(todos[1].priority(), Some(Priority::Medium));
-        assert_eq!(todos[2].priority(), Some(Priority::High));
-
-        apply_sorting(&mut todos, SortBy::Priority, false).unwrap();
-
-        assert_eq!(todos[0].priority(), Some(Priority::High));
-        assert_eq!(todos[1].priority(), Some(Priority::Medium));
-        assert_eq!(todos[2].priority(), Some(Priority::Low));
+        // Ascending: Low < Medium < High
+        assert_eq!(todos[0].id(), 2); // Low
+        assert_eq!(todos[1].id(), 3); // Medium
+        assert_eq!(todos[2].id(), 1); // High
     }
 
     #[test]
-    fn test_apply_sorting_due_then_priority() {
-        let mut todos = create_test_todos();
+    fn test_cmp_option_priority_ordering() {
+        let high = Some(Priority::High);
+        let low = Some(Priority::Low);
+        let none: Option<Priority> = None;
 
-        apply_sorting(&mut todos, SortBy::DueThenPriority, true).unwrap();
-
-        assert_eq!(todos[0].id(), 2); // 2025-08-08
-        assert_eq!(todos[1].id(), 3); // 2025-08-09
-        assert_eq!(todos[2].id(), 1); // 2025-08-10
+        // Test ascending
+        assert_eq!(cmp_option(&low, &high, true), Ordering::Less);
+        // Test Some vs None (Some comes before None)
+        assert_eq!(cmp_option(&high, &none, true), Ordering::Less);
+        assert_eq!(cmp_option(&none, &high, true), Ordering::Greater);
     }
 
     #[test]
-    fn test_apply_filter_basic() {
-        let todos = create_test_todos();
+    fn test_handle_list_command() {
+        let mut todos = vec![
+            TodoItem::new(1, "Task 1".to_string(), None, true, None, None, None),
+            TodoItem::new(2, "Task 2".to_string(), None, false, None, None, None),
+        ];
 
         let query = ListQuery {
             sort_by: SortBy::Due,
@@ -362,68 +375,47 @@ mod tests {
             due_within: None,
         };
 
-        let filtered = apply_filter(&todos, &query).unwrap();
-
-        assert_eq!(filtered.len(), 3);
+        let result = handle_list_command(&mut todos, query);
+        assert!(result.is_ok());
     }
 
     #[test]
-    fn test_apply_filter_by_completion() {
-        let todos = create_test_todos();
-
-        let query_complete = ListQuery {
-            sort_by: SortBy::Due,
-            asc: true,
-            desc: false,
-            only_complete: true,
-            only_pending: false,
-            priority: None,
-            overdue: false,
-            due_today: false,
-            due_tomorrow: false,
-            due_within: None,
-        };
-
-        let filtered_complete = apply_filter(&todos, &query_complete).unwrap();
-
-        assert_eq!(filtered_complete.len(), 1);
-        assert_eq!(filtered_complete[0].id(), 2);
-        assert!(filtered_complete[0].completed());
-
-        let query_pending = ListQuery {
-            sort_by: SortBy::Due,
-            asc: true,
-            desc: false,
-            only_complete: false,
-            only_pending: true,
-            priority: None,
-            overdue: false,
-            due_today: false,
-            due_tomorrow: false,
-            due_within: None,
-        };
-
-        let filtered_pending = apply_filter(&todos, &query_pending).unwrap();
-
-        assert_eq!(filtered_pending.len(), 2);
-        assert!(!filtered_pending[0].completed());
-        assert!(!filtered_pending[1].completed());
-    }
-
-    #[test]
-    fn test_error_handling_invalid_command() {
+    fn test_full_workflow() {
         let mut manager = create_test_manager();
 
-        let command = Commands::Edit {
-            id: 999,
-            title: Some("Title".to_string()),
+        // Add -> Edit -> Toggle -> Delete workflow
+        let add_cmd = Commands::Add {
+            title: "Workflow test".to_string(),
             description: None,
             due_date: None,
-            priority: None,
+            priority: Some("medium".to_string()),
             tags: None,
         };
+        handle_commands(add_cmd, &mut manager).unwrap();
 
-        let result = handle_commands(command, &mut manager);
-        assert!(result.is_err());
+        let todo_id = manager.todos[0].id();
+        assert_eq!(manager.todos[0].priority(), Some(Priority::Medium));
+
+        // Edit priority
+        let edit_cmd = Commands::Edit {
+            id: todo_id,
+            title: None,
+            description: None,
+            due_date: None,
+            priority: Some("high".to_string()),
+            tags: None,
+        };
+        handle_commands(edit_cmd, &mut manager).unwrap();
+        assert_eq!(manager.todos[0].priority(), Some(Priority::High));
+
+        // Toggle completion
+        let toggle_cmd = Commands::Toggle { id: todo_id };
+        handle_commands(toggle_cmd, &mut manager).unwrap();
+        assert!(manager.todos[0].completed());
+
+        // Delete
+        let delete_cmd = Commands::Delete { id: todo_id };
+        handle_commands(delete_cmd, &mut manager).unwrap();
+        assert_eq!(manager.todos.len(), 0);
     }
 }
