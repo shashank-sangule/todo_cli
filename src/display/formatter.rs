@@ -9,9 +9,16 @@ pub fn format_status(status: bool) -> &'static str {
 }
 
 pub fn format_due_date(due_date: Option<NaiveDateTime>) -> String {
+    format_due_date_with_now(due_date, None)
+}
+
+pub fn format_due_date_with_now(
+    due_date: Option<NaiveDateTime>,
+    now: Option<NaiveDateTime>,
+) -> String {
     match due_date {
         Some(due_date) => {
-            let now = Local::now().naive_local();
+            let now = now.unwrap_or_else(|| Local::now().naive_local());
             let due_date_date = due_date.date();
             let diff = due_date_date.signed_duration_since(now.date());
 
@@ -84,8 +91,9 @@ mod tests {
 
     #[test]
     fn test_format_due_date_today() {
+        let mock_now = test_date(2025, 8, 7, 8, 0); // Mock current time
         let today_date = test_date(2025, 8, 7, 10, 0); // Same day, different time
-        let result = format_due_date(Some(today_date));
+        let result = format_due_date_with_now(Some(today_date), Some(mock_now));
 
         assert!(result.starts_with("🟡"));
         assert!(result.contains("10:00"));
@@ -94,8 +102,9 @@ mod tests {
 
     #[test]
     fn test_format_due_date_tomorrow() {
+        let mock_now = test_date(2025, 8, 7, 8, 0); // Mock current time
         let tomorrow_date = test_date(2025, 8, 8, 15, 0); // Next day
-        let result = format_due_date(Some(tomorrow_date));
+        let result = format_due_date_with_now(Some(tomorrow_date), Some(mock_now));
 
         assert!(result.starts_with("🟢"));
         assert!(result.contains("15:00"));
