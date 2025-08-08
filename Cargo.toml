@@ -38,6 +38,3 @@ codegen-units = 1
 panic = "abort"
 strip = true
 
-[[bench]]
-name = "todo_performance"
-harness = false
