@@ -13,20 +13,21 @@ categories = ["command-line-utilities"]
 
 [dependencies]
 assert_cmd = "2.0"
-chrono = { version = "0.4.41", features = ["serde"] }
-chrono-english = "0.1.7"
-clap = { version = "4.5.42", features = ["derive"] }
-criterion = "0.7.0"
-predicates = "3.0"
-serde = { version = "1.0.219", features = ["derive"] }
-serde_json = "1.0.141"
-tempfile = "3.8"
-thiserror = "2.0.12"
+chrono = { version = "0.4", features = ["serde"] }
+chrono-english = "0.1"
+clap = { version = "4.5", features = ["derive"] }
+predicates = "3"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tempfile = "3"
+thiserror = "2.0"
 
 [dev-dependencies]
-tempfile = "3.8"
+tempfile = "3"
 assert_cmd = "2.0"
 predicates = "3.0"
+criterion = "0.7"
+
 
 [[bin]]
 name = "todo"

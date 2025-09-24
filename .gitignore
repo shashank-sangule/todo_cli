@@ -2,3 +2,5 @@
 todo_list.json
 /data/*.json
 test_todos.json
+.idea
+CLAUDE.md
